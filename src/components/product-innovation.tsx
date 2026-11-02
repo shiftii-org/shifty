@@ -24,7 +24,7 @@ type FitItem = {
   bgImage: string;
 };
 
-const TABS = ["Use Cases", "Roles"] as const;
+const TABS = ["Use Cases"] as const;
 type Tab = (typeof TABS)[number];
 
 const CONTENT: Record<Tab, FitItem[]> = {
@@ -59,33 +59,7 @@ const CONTENT: Record<Tab, FitItem[]> = {
       desc: "See nurse-to-patient ratios live, unit by unit.",
       bgImage: "/videos/6130024-hd_1280_720_30fps.mp4",
     },
-  ],
-  Roles: [
-    {
-      icon: Stethoscope,
-      title: "Nursing",
-      desc: "Self-scheduling, acuity-based staffing, and shift bidding.",
-      bgImage: "/assets/img/fit/nursing.webp",
-    },
-    {
-      icon: HeartPulse,
-      title: "ICU & Critical Care",
-      desc: "Guarantee minimum coverage for your highest-acuity units.",
-      bgImage: "/videos/3197622-hd_1920_1080_25fps.mp4",
-    },
-    {
-      icon: ClipboardList,
-      title: "Charge & Admin",
-      desc: "Approve time-off, swaps, and overtime from a single queue.",
-      bgImage: "/assets/img/fit/charge-admin.webp",
-    },
-    {
-      icon: Users,
-      title: "Physicians & APPs",
-      desc: "Manage on-call rotations and cross-department coverage.",
-      bgImage: "/assets/img/fit/physicians.webp",
-    },
-  ],
+  ]
 };
 
 // Extensions treated as video; anything else falls back to <img>
@@ -153,36 +127,22 @@ export function FindYourFit() {
           "radial-gradient(circle at 50% 15%, #6B84B4 0%, #5B72A0 55%, #4E6390 100%)",
       }}
     >
-      <div className="mx-auto max-w-7xl px-6 pt-20 lg:px-10 lg:pt-28 text-center">
+      <div className="mx-auto max-w-7xl px-6 pt-20 lg:px-10 lg:pt-28 text-left">
         <h2 className="font-serif text-3xl sm:text-5xl lg:text-6xl text-white mb-6 leading-[1.1]">
           Built for every unit
           <br />
           and every shift
         </h2>
-        <p className="text-white/80 text-lg max-w-2xl mx-auto mb-10 hidden md:block">
+        {/* <p className="text-white/80 text-lg max-w-2xl mx-auto mb-10 hidden md:block">
           Whether you&apos;re covering the ICU, filling a last-minute
           call-out, or planning next month&apos;s schedule, your scheduling
           platform fits the way your hospital runs.
-        </p>
+        </p> */}
         <p className="text-white/80 text-lg max-w-2xl mx-auto mb-10 md:hidden">
           From last-minute call-outs to next month&apos;s schedules, built around your hospital.
         </p>
 
-        <div className="flex flex-wrap items-center justify-center gap-3 mb-14">
-          {TABS.map((tab) => (
-            <button
-              key={tab}
-              onClick={() => setActiveTab(tab)}
-              className={`rounded-full px-5 py-2 text-xs font-medium transition-colors duration-200 ${
-                activeTab === tab
-                  ? "bg-[#111110] text-white"
-                  : "bg-white text-[#111110] hover:bg-white/90"
-              }`}
-            >
-              {tab}
-            </button>
-          ))}
-        </div>
+      
       </div>
 
       <div className="mx-auto max-w-7xl px-6 pb-20 lg:px-10 lg:pb-28">

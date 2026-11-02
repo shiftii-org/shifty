@@ -20,9 +20,7 @@ export function HarveyII() {
 
   return (
     <section className="mx-auto max-w-7xl px-6 py-16 lg:px-10 lg:py-24 text-center">
-      <span className="inline-block text-[10px] tracking-wide rounded-full border border-black/20 px-3 py-1 mb-6">
-        NEW
-      </span>
+    
       <h2 className="font-serif text-3xl sm:text-5xl mb-4">
         Introducing Shifti
       </h2>
