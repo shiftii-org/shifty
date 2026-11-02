@@ -39,6 +39,22 @@ export async function assignShift(input: { shiftId: string; membershipId: string
     });
 }
 
+export async function rescheduleShift(input: { shiftId: string; date: string; expectedVersion: number; startTime?: string; endTime?: string }) {
+  const userId = await requireAuthedUserId();
+  return withOrg(userId, async (ctx) => {
+    const { rescheduleShift } = await import("@/lib/shiftii/services/shifts.server");
+    return rescheduleShift(ctx, input);
+  });
+}
+
+export async function moveAndAssignShift(input: { shiftId: string; date: string; expectedVersion: number; membershipId?: string }) {
+  const userId = await requireAuthedUserId();
+  return withOrg(userId, async (ctx) => {
+    const { moveAndAssignShift } = await import("@/lib/shiftii/services/shifts.server");
+    return moveAndAssignShift(ctx, input);
+  });
+}
+
 export async function unassignShift(input: { shiftId: string; openForClaim?: boolean }) {
   const data = input;
   const userId = await requireAuthedUserId();
@@ -84,6 +100,19 @@ export async function createShift(input: {
       const { createShift } = await import("@/lib/shiftii/services/shifts.server");
       return createShift(ctx, data);
     });
+}
+
+export async function createRoster(input: {
+  name: string;
+  startDate: string;
+  endDate: string;
+  locationId?: string | null;
+}) {
+  const userId = await requireAuthedUserId();
+  return withOrg(userId, async (ctx) => {
+    const { createRoster } = await import("@/lib/shiftii/services/roster.server");
+    return createRoster(ctx, input);
+  });
 }
 
 export async function listRosters() {

@@ -11,7 +11,7 @@ export function mapOrg(row: OrgRow): Organization {
     name: str(row.name),
     slug: str(row.slug),
     timezone: str(row.timezone) || "America/New_York",
-    weekStartDay: num(row.week_start_day) || 1,
+    weekStartDay: row.week_start_day == null ? 1 : num(row.week_start_day),
     locale: str(row.locale) || "en",
     defaultShiftLengthMinutes: num(row.default_shift_length_minutes) || 720,
     defaultBreakMinutes: num(row.default_break_minutes) || 30,
@@ -107,13 +107,23 @@ export async function loadSessionContext(userId: string): Promise<SessionContext
 }
 
 export async function requireContext(userId: string): Promise<SessionContext> {
-  const { ensureHospital } = await import("./seed.server");
   let ctx = await loadSessionContext(userId);
-  if (!ctx) {
+  // Preserve the old seeded demo ONLY for the local auth-disabled preview.
+  // Real users must register or accept a company invitation instead.
+  const demoMode =
+    process.env.NEXT_PUBLIC_AUTH_ENABLED === "false" &&
+    !process.env.DATABASE_URL?.trim();
+  if (!ctx && demoMode) {
+    const { ensureHospital } = await import("./seed.server");
     await ensureHospital(userId);
     ctx = await loadSessionContext(userId);
   }
-  if (!ctx) throw new NotFoundError("No hospital membership for this account.");
+  if (!ctx) {
+    throw new NotFoundError("No company membership yet. Complete company registration or accept an invitation.");
+  }
+  if (!ctx.organization.isActive) {
+    throw new ForbiddenError("This company is inactive. Contact your administrator.");
+  }
   return ctx;
 }
 
