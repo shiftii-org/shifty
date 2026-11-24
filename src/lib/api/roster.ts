@@ -136,6 +136,20 @@ export async function generateFairRoster(input: { rosterId?: string; apply?: boo
     });
 }
 
+export async function buildRosterDraft(input: {
+  rosterId: string;
+  from?: string;
+  to?: string;
+  locationIds?: string[];
+  dryRun?: boolean;
+}) {
+  const userId = await requireAuthedUserId();
+  return withOrg(userId, async (ctx) => {
+    const { buildRosterFromDemand } = await import("@/lib/shiftii/services/roster.server");
+    return buildRosterFromDemand(ctx, input);
+  });
+}
+
 export async function publishRoster(input: { rosterId: string }) {
   const data = input;
   const userId = await requireAuthedUserId();

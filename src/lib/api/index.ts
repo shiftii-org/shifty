@@ -35,6 +35,7 @@ export {
   listRosters,
   createRoster,
   generateFairRoster,
+  buildRosterDraft,
   publishRoster,
   listClaims,
   claimOpenShift,

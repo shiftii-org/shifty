@@ -361,6 +361,38 @@ export async function setOpenForClaim(
     entityType: "shift",
     entityId: input.shiftId,
   });
+  if (input.open) {
+    // Alert staff already linked to the ward — in-app plus the Resend outbox.
+    const candidates = await q<{ id: string }>(
+      `select distinct m.id
+         from memberships m
+         join membership_locations ml on ml.membership_id = m.id
+        where m.organization_id = $1 and m.status = 'ACTIVE'
+          and m.is_synthetic = false and ml.location_id = $2
+        order by m.id
+        limit 25`,
+      [ctx.organization.id, current.locationId],
+    );
+    if (candidates.length) {
+      await notify({
+        organizationId: ctx.organization.id,
+        recipientIds: candidates.map((row) => row.id),
+        type: "OPEN_SHIFT_ALERT",
+        title: "Open shift available",
+        message: `${current.locationName ?? "A ward"} has an open shift on ${current.date}.`,
+        link: "/app?view=open",
+        email: {
+          template: "open_shift_alert",
+          data: {
+            organizationName: ctx.organization.name,
+            shiftDate: current.date,
+            shiftWindow: current.shiftWindow ?? undefined,
+            wardName: current.locationName,
+          },
+        },
+      });
+    }
+  }
   return getShift(ctx, input.shiftId);
 }
 
