@@ -9,7 +9,6 @@ import {
   CheckCircle2,
   Eye,
   EyeOff,
-  KeyRound,
   Loader2,
   LockKeyhole,
 } from "lucide-react";

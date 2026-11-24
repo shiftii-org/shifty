@@ -93,15 +93,30 @@ function toSql(
   return sql;
 }
 
+/** Hosted Postgres (Supabase, Neon) only accepts TLS connections. */
+function hostedTls(url: string | undefined): { rejectUnauthorized: false } | undefined {
+  if (!url) return undefined;
+  try {
+    const host = new URL(url).hostname;
+    if (host === "localhost" || host === "127.0.0.1") return undefined;
+    return { rejectUnauthorized: false };
+  } catch {
+    return undefined;
+  }
+}
+
 function createNeonSql(): Promise<Sql> {
   globalRef.__pgSqlPromise__ ??= (async () => {
-    // Regular Postgres driver: node-postgres (`pg`) — works directly with Neon's
+    // Regular Postgres driver: node-postgres (`pg`) — works directly with the
     // pooled endpoint. One pool per process; warm serverless instances reuse it.
     const { Pool, types } = await import("pg");
     types.setTypeParser(OID_INT8, Number);
     types.setTypeParser(OID_DATE, identity);
     types.setTypeParser(OID_INTERVAL, identity);
-    const pool = new Pool({ connectionString: databaseUrl });
+    const pool = new Pool({
+      connectionString: databaseUrl,
+      ssl: hostedTls(databaseUrl),
+    });
     return toSql(
       async <T>(text: string, params: unknown[]) => {
         const res = await pool.query(text, params);
