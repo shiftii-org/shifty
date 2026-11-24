@@ -31,9 +31,12 @@ export async function listPositions() {
 export async function updateOrgSettings(input: {
       claimApprovalMode?: "AUTO" | "MANAGER_APPROVAL";
       swapApprovalMode?: "AUTO" | "MANAGER_APPROVAL";
+      swapRequiresHeadDoctor?: boolean;
       minRestHoursBetweenShifts?: number;
       maxWeeklyHours?: number | null;
       aiFeaturesEnabled?: boolean;
+      confidentialityLevel?: "STANDARD" | "RESTRICTED" | "SENSITIVE";
+      bedCount?: number | null;
     }) {
   const data = input;
   const userId = await requireAuthedUserId();
@@ -47,7 +50,21 @@ export async function updateStaffProfile(input: {
   membershipId: string;
   displayName?: string;
   targetWeeklyHours?: number | null;
-  role?: "ADMIN" | "MANAGER" | "EMPLOYEE";
+  role?:
+    | "ADMIN"
+    | "MANAGER"
+    | "HEAD_DOCTOR"
+    | "CHARGE_NURSE"
+    | "DOCTOR"
+    | "NURSE"
+    | "MIDWIFE"
+    | "TECHNICIAN"
+    | "EMPLOYEE";
+  jobTitle?: string | null;
+  seniority?: number;
+  canApproveSwaps?: boolean;
+  contactEmail?: string | null;
+  emailNotifications?: boolean;
   locationIds?: string[];
   positionIds?: string[];
   primaryLocationId?: string | null;

@@ -35,7 +35,7 @@ export function HarveyII() {
       <div
         className="relative w-full rounded-xl overflow-hidden flex items-center justify-center"
         style={{
-          height: "clamp(260px, 40vw, 460px)",
+          height: "clamp(360px, 55vw, 640px)",
           background:
             "radial-gradient(circle at 50% 40%, #E9E6DD 0%, #D9D5C8 45%, #C7C2B2 100%)",
         }}

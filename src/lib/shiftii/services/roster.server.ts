@@ -88,12 +88,28 @@ export async function publishRoster(ctx: SessionContext, rosterId: string) {
     `select id from memberships where organization_id = $1 and status = 'ACTIVE' and is_synthetic = false`,
     [ctx.organization.id],
   );
+  const roster = await q<{ name: string; start_date: string; end_date: string }>(
+    `select name, start_date::text as start_date, end_date::text as end_date
+       from rosters where id = $1 and organization_id = $2`,
+    [rosterId, ctx.organization.id],
+  );
   await notify({
     organizationId: ctx.organization.id,
     recipientIds: staff.length ? staff.map((s) => s.id) : await managerIds(ctx.organization.id),
     type: "ROSTER_PUBLISHED",
     title: "Roster published",
     message: "A roster cycle is live. Check your upcoming shifts.",
+    link: "/app?view=me",
+    email: {
+      template: "roster_published",
+      data: {
+        organizationName: ctx.organization.name,
+        rosterName: roster[0]?.name,
+        periodStart: roster[0]?.start_date,
+        periodEnd: roster[0]?.end_date,
+        actorName: ctx.membership.displayName,
+      },
+    },
   });
   await audit({ ctx, action: "ROSTER_PUBLISHED", entityType: "roster", entityId: rosterId });
   return { ok: true as const };

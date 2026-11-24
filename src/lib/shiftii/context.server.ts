@@ -13,12 +13,23 @@ export function mapOrg(row: OrgRow): Organization {
     timezone: str(row.timezone) || "America/New_York",
     weekStartDay: row.week_start_day == null ? 1 : num(row.week_start_day),
     locale: str(row.locale) || "en",
+    orgType: (str(row.org_type) as Organization["orgType"]) || "HOSPITAL",
+    bedCount: numOrNull(row.bed_count),
+    accreditation: strOrNull(row.accreditation),
+    regulatoryRegion: strOrNull(row.regulatory_region),
+    confidentialityLevel:
+      (str(row.confidentiality_level) as Organization["confidentialityLevel"]) || "STANDARD",
+    accessCode: strOrNull(row.access_code),
+    emailFromName: strOrNull(row.email_from_name),
+    settings: json<Record<string, unknown>>(row.settings, {}),
+    branding: json<Record<string, unknown>>(row.branding, {}),
     defaultShiftLengthMinutes: num(row.default_shift_length_minutes) || 720,
     defaultBreakMinutes: num(row.default_break_minutes) || 30,
     maxWeeklyHours: numOrNull(row.max_weekly_hours),
     minRestHoursBetweenShifts: num(row.min_rest_hours_between_shifts) || 10,
     claimApprovalMode: (str(row.claim_approval_mode) as Organization["claimApprovalMode"]) || "MANAGER_APPROVAL",
     swapApprovalMode: (str(row.swap_approval_mode) as Organization["swapApprovalMode"]) || "MANAGER_APPROVAL",
+    swapRequiresHeadDoctor: row.swap_requires_head_doctor == null ? true : bool(row.swap_requires_head_doctor),
     aiFeaturesEnabled: bool(row.ai_features_enabled),
     isActive: bool(row.is_active),
   };
@@ -33,6 +44,12 @@ export function mapMembership(row: MemRow): Membership {
     initials: str(row.initials) || initialsFrom(str(row.display_name)),
     role: str(row.role) as MembershipRole,
     status: str(row.status) as Membership["status"],
+    jobTitle: strOrNull(row.job_title),
+    seniority: num(row.seniority),
+    canApproveSwaps: bool(row.can_approve_swaps),
+    permissions: json<Record<string, unknown>>(row.permissions, {}),
+    contactEmail: strOrNull(row.contact_email),
+    emailNotifications: row.email_notifications == null ? true : bool(row.email_notifications),
     targetWeeklyHours: numOrNull(row.target_weekly_hours),
     preferences: json<StaffPreferences>(row.preferences, {}),
     isSynthetic: bool(row.is_synthetic),
@@ -54,7 +71,10 @@ export async function findMembershipForUser(userId: string): Promise<{
     `select m.*, o.id as org_id, o.name as org_name, o.slug, o.timezone, o.week_start_day,
             o.locale, o.default_shift_length_minutes, o.default_break_minutes,
             o.max_weekly_hours, o.min_rest_hours_between_shifts,
-            o.claim_approval_mode, o.swap_approval_mode, o.ai_features_enabled, o.is_active
+            o.claim_approval_mode, o.swap_approval_mode, o.ai_features_enabled, o.is_active,
+            o.org_type, o.bed_count, o.accreditation, o.regulatory_region,
+            o.confidentiality_level, o.access_code, o.email_from_name,
+            o.swap_requires_head_doctor, o.settings, o.branding
        from memberships m
        join organizations o on o.id = m.organization_id
       where m.user_id = $1 and m.status = 'ACTIVE'
@@ -79,6 +99,16 @@ export async function findMembershipForUser(userId: string): Promise<{
       swap_approval_mode: row.swap_approval_mode,
       ai_features_enabled: row.ai_features_enabled,
       is_active: row.is_active,
+      org_type: row.org_type,
+      bed_count: row.bed_count,
+      accreditation: row.accreditation,
+      regulatory_region: row.regulatory_region,
+      confidentiality_level: row.confidentiality_level,
+      access_code: row.access_code,
+      email_from_name: row.email_from_name,
+      swap_requires_head_doctor: row.swap_requires_head_doctor,
+      settings: row.settings,
+      branding: row.branding,
     }),
     membership: mapMembership(row),
   };
@@ -131,9 +161,62 @@ export function isManager(role: MembershipRole): boolean {
   return role === "OWNER" || role === "ADMIN" || role === "MANAGER";
 }
 
+/** Clinical leadership that may run a ward/day without owning the org. */
+export function isClinicalLead(role: MembershipRole): boolean {
+  return isManager(role) || role === "HEAD_DOCTOR" || role === "CHARGE_NURSE";
+}
+
 export function assertManager(ctx: SessionContext): void {
   if (!isManager(ctx.membership.role)) {
     throw new ForbiddenError("This action is limited to charge nurses and managers.");
+  }
+}
+
+/** Org administration (settings, wards, roles) — owner/admin only. */
+export function assertOrgAdmin(ctx: SessionContext): void {
+  if (ctx.membership.role !== "OWNER" && ctx.membership.role !== "ADMIN") {
+    throw new ForbiddenError("This action is limited to company administrators.");
+  }
+}
+
+/** A head doctor (or an owner/admin override) may sign off swaps. */
+export function isSwapApprover(ctx: SessionContext): boolean {
+  return (
+    ctx.membership.role === "HEAD_DOCTOR" ||
+    ctx.membership.role === "OWNER" ||
+    ctx.membership.role === "ADMIN" ||
+    ctx.membership.canApproveSwaps
+  );
+}
+
+export function assertSwapApprover(ctx: SessionContext): void {
+  if (!isSwapApprover(ctx)) {
+    throw new ForbiddenError("Only the head doctor can approve this shift swap.");
+  }
+}
+
+export function roleLabel(role: MembershipRole): string {
+  switch (role) {
+    case "OWNER":
+      return "Owner";
+    case "ADMIN":
+      return "Administrator";
+    case "MANAGER":
+      return "Manager";
+    case "HEAD_DOCTOR":
+      return "Head doctor";
+    case "CHARGE_NURSE":
+      return "Charge nurse";
+    case "DOCTOR":
+      return "Doctor";
+    case "NURSE":
+      return "Nurse";
+    case "MIDWIFE":
+      return "Midwife";
+    case "TECHNICIAN":
+      return "Technician";
+    default:
+      return "Team member";
   }
 }
 

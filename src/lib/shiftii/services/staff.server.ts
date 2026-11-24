@@ -15,7 +15,22 @@ export async function listLocations(ctx: SessionContext): Promise<Location[]> {
     id: str(r.id),
     organizationId: str(r.organization_id),
     name: str(r.name),
+    code: r.code ? str(r.code) : null,
+    description: r.description ? str(r.description) : null,
     unitType: r.unit_type ? str(r.unit_type) : null,
+    unitKind: r.unit_kind ? str(r.unit_kind) : null,
+    floor: r.floor ? str(r.floor) : null,
+    wing: r.wing ? str(r.wing) : null,
+    bedCapacity: numOrNull(r.bed_capacity),
+    confidentialityLevel: (str(r.confidentiality_level) as Location["confidentialityLevel"]) || "STANDARD",
+    map: {
+      x: numOrNull(r.map_x),
+      y: numOrNull(r.map_y),
+      z: numOrNull(r.map_z),
+      width: numOrNull(r.map_width),
+      depth: numOrNull(r.map_depth),
+      meta: json<Record<string, unknown>>(r.map_meta, {}),
+    },
     isActive: bool(r.is_active),
   }));
 }
@@ -65,6 +80,12 @@ export async function listStaff(ctx: SessionContext): Promise<StaffRow[]> {
     initials: str(r.initials),
     role: str(r.role) as Membership["role"],
     status: str(r.status) as Membership["status"],
+    jobTitle: r.job_title ? str(r.job_title) : null,
+    seniority: Number(r.seniority ?? 0),
+    canApproveSwaps: bool(r.can_approve_swaps),
+    permissions: json<Record<string, unknown>>(r.permissions, {}),
+    contactEmail: r.contact_email ? str(r.contact_email) : null,
+    emailNotifications: r.email_notifications == null ? true : bool(r.email_notifications),
     targetWeeklyHours: numOrNull(r.target_weekly_hours),
     preferences: json<StaffPreferences>(r.preferences, {}),
     isSynthetic: bool(r.is_synthetic),
@@ -80,9 +101,12 @@ export async function updateOrgSettings(
   patch: {
     claimApprovalMode?: "AUTO" | "MANAGER_APPROVAL";
     swapApprovalMode?: "AUTO" | "MANAGER_APPROVAL";
+    swapRequiresHeadDoctor?: boolean;
     minRestHoursBetweenShifts?: number;
     maxWeeklyHours?: number | null;
     aiFeaturesEnabled?: boolean;
+    confidentialityLevel?: "STANDARD" | "RESTRICTED" | "SENSITIVE";
+    bedCount?: number | null;
   },
 ) {
   assertManager(ctx);
@@ -93,14 +117,21 @@ export async function updateOrgSettings(
             min_rest_hours_between_shifts = coalesce($3, min_rest_hours_between_shifts),
             max_weekly_hours = coalesce($4, max_weekly_hours),
             ai_features_enabled = coalesce($5, ai_features_enabled),
+            swap_requires_head_doctor = coalesce($6, swap_requires_head_doctor),
+            confidentiality_level = coalesce($7, confidentiality_level),
+            bed_count = case when $8 then $9::integer else bed_count end,
             updated_at = now()
-      where id = $6`,
+      where id = $10`,
     [
       patch.claimApprovalMode ?? null,
       patch.swapApprovalMode ?? null,
       patch.minRestHoursBetweenShifts ?? null,
       patch.maxWeeklyHours ?? null,
       patch.aiFeaturesEnabled ?? null,
+      patch.swapRequiresHeadDoctor ?? null,
+      patch.confidentialityLevel ?? null,
+      patch.bedCount !== undefined,
+      patch.bedCount ?? null,
       ctx.organization.id,
     ],
   );
@@ -110,7 +141,12 @@ export async function updateOrgSettings(
 export type StaffProfilePatch = {
   displayName?: string;
   targetWeeklyHours?: number | null;
-  role?: "ADMIN" | "MANAGER" | "EMPLOYEE";
+  role?: "ADMIN" | "MANAGER" | "HEAD_DOCTOR" | "CHARGE_NURSE" | "DOCTOR" | "NURSE" | "MIDWIFE" | "TECHNICIAN" | "EMPLOYEE";
+  jobTitle?: string | null;
+  seniority?: number;
+  canApproveSwaps?: boolean;
+  contactEmail?: string | null;
+  emailNotifications?: boolean;
   locationIds?: string[];
   positionIds?: string[];
   primaryLocationId?: string | null;
@@ -122,9 +158,10 @@ function requireRoleEditor(ctx: SessionContext): void {
 
 function canManageTarget(actor: Membership["role"], target: Membership["role"]): boolean {
   if (target === "OWNER") return actor === "OWNER";
-  if (actor === "MANAGER") return target === "EMPLOYEE";
-  if (actor === "ADMIN") return target === "MANAGER" || target === "EMPLOYEE";
-  return actor === "OWNER";
+  if (actor === "OWNER") return true;
+  if (actor === "ADMIN") return target !== "ADMIN";
+  if (actor === "MANAGER") return !["MANAGER", "ADMIN"].includes(target);
+  return false;
 }
 
 export async function updateStaffProfile(ctx: SessionContext, membershipId: string, patch: StaffProfilePatch) {
@@ -142,11 +179,26 @@ export async function updateStaffProfile(ctx: SessionContext, membershipId: stri
     }
     if (current.status !== "ACTIVE") throw new ConflictError("This team member is inactive.");
     if (patch.role !== undefined) {
-      if (!["ADMIN", "MANAGER", "EMPLOYEE"].includes(patch.role)) {
+      const assignable = [
+        "ADMIN",
+        "MANAGER",
+        "HEAD_DOCTOR",
+        "CHARGE_NURSE",
+        "DOCTOR",
+        "NURSE",
+        "MIDWIFE",
+        "TECHNICIAN",
+        "EMPLOYEE",
+      ];
+      if (!assignable.includes(patch.role)) {
         throw new ConstraintError(["Invalid role."]);
       }
-      if (ctx.membership.role === "MANAGER" && patch.role !== "EMPLOYEE") throw new ForbiddenError("Managers can only assign employee access.");
-      if (ctx.membership.role === "ADMIN" && patch.role === "ADMIN") throw new ForbiddenError("Only owners can promote administrators.");
+      if (ctx.membership.role === "MANAGER" && ["ADMIN", "MANAGER"].includes(patch.role)) {
+        throw new ForbiddenError("Managers can only assign clinical and employee access.");
+      }
+      if (ctx.membership.role === "ADMIN" && patch.role === "ADMIN") {
+        throw new ForbiddenError("Only owners can promote administrators.");
+      }
       if (current.role === "OWNER") throw new ForbiddenError("Ownership cannot be changed here.");
     }
     const displayName = patch.displayName === undefined ? undefined : patch.displayName.trim();
@@ -156,6 +208,16 @@ export async function updateStaffProfile(ctx: SessionContext, membershipId: stri
     const hours = patch.targetWeeklyHours;
     if (hours !== undefined && hours !== null && (!Number.isFinite(hours) || hours < 0 || hours > 168)) {
       throw new ConstraintError(["Weekly target hours must be between 0 and 168."]);
+    }
+    if (patch.seniority !== undefined && (!Number.isInteger(patch.seniority) || patch.seniority < 0 || patch.seniority > 50)) {
+      throw new ConstraintError(["Seniority must be a whole number between 0 and 50."]);
+    }
+    const contactEmail = patch.contactEmail === undefined ? undefined : patch.contactEmail?.trim().toLowerCase() ?? null;
+    if (contactEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactEmail)) {
+      throw new ConstraintError(["Enter a valid contact email address."]);
+    }
+    if (patch.canApproveSwaps !== undefined && !["OWNER", "ADMIN", "MANAGER"].includes(ctx.membership.role)) {
+      throw new ForbiddenError("Only managers can grant swap approval rights.");
     }
     const locationIds = patch.locationIds === undefined ? undefined : [...new Set(patch.locationIds)];
     const positionIds = patch.positionIds === undefined ? undefined : [...new Set(patch.positionIds)];
@@ -184,10 +246,33 @@ export async function updateStaffProfile(ctx: SessionContext, membershipId: stri
       `update memberships
           set display_name = coalesce($1, display_name), initials = coalesce($2, initials),
               target_weekly_hours = case when $3 then $4::double precision else target_weekly_hours end,
-              role = coalesce($5, role), updated_at = now()
+              role = coalesce($5, role),
+              job_title = case when $8 then $9::text else job_title end,
+              seniority = case when $10 then $11::integer else seniority end,
+              can_approve_swaps = case when $12 then $13::boolean else can_approve_swaps end,
+              contact_email = case when $14 then $15::text else contact_email end,
+              email_notifications = case when $16 then $17::boolean else email_notifications end,
+              updated_at = now()
         where id = $6 and organization_id = $7`,
-      [displayName ?? null, displayName === undefined ? null : initialsFrom(displayName),
-        hours !== undefined, hours ?? null, patch.role ?? null, membershipId, ctx.organization.id],
+      [
+        displayName ?? null,
+        displayName === undefined ? null : initialsFrom(displayName),
+        hours !== undefined,
+        hours ?? null,
+        patch.role ?? null,
+        membershipId,
+        ctx.organization.id,
+        patch.jobTitle !== undefined,
+        patch.jobTitle?.trim() || null,
+        patch.seniority !== undefined,
+        patch.seniority ?? 0,
+        patch.canApproveSwaps !== undefined,
+        patch.canApproveSwaps ?? false,
+        patch.contactEmail !== undefined,
+        contactEmail,
+        patch.emailNotifications !== undefined,
+        patch.emailNotifications ?? true,
+      ],
     );
     if (locationIds) {
       await q("delete from membership_locations where membership_id = $1", [membershipId]);

@@ -93,6 +93,10 @@ export async function createShift(input: {
       employeeId?: string | null;
       openForClaim?: boolean;
       notes?: string | null;
+      shiftWindow?: "DAY" | "EVENING" | "NIGHT" | null;
+      openPriority?: "LOW" | "NORMAL" | "HIGH" | "CRITICAL";
+      fillDeadline?: string | null;
+      templateId?: string | null;
     }) {
   const data = input;
   const userId = await requireAuthedUserId();
@@ -214,13 +218,21 @@ export async function respondToSwap(input: { swapId: string; accept: boolean }) 
     });
 }
 
-export async function reviewSwap(input: { swapId: string; approve: boolean }) {
+export async function reviewSwap(input: { swapId: string; approve: boolean; reason?: string }) {
   const data = input;
   const userId = await requireAuthedUserId();
   return withOrg(userId, async (ctx) => {
       const { reviewSwap } = await import("@/lib/shiftii/services/swaps.server");
       return reviewSwap(ctx, data);
     });
+}
+
+export async function reviewSwapAsHeadDoctor(input: { swapId: string; approve: boolean; reason?: string }) {
+  const userId = await requireAuthedUserId();
+  return withOrg(userId, async (ctx) => {
+    const { reviewSwapAsHeadDoctor } = await import("@/lib/shiftii/services/swaps.server");
+    return reviewSwapAsHeadDoctor(ctx, input);
+  });
 }
 
 export async function cancelSwap(input: { swapId: string }) {
