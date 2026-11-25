@@ -77,16 +77,14 @@ export async function setPositionCredentialRequirement(
 ) {
   assertManager(ctx);
   return withTransaction(async () => {
-    const [position, credential] = await Promise.all([
-      qOne<{ id: string }>(
-        "select id from positions where id = $1 and organization_id = $2 and is_active = true",
-        [input.positionId, ctx.organization.id],
-      ),
-      qOne<{ id: string }>(
-        "select id from credential_types where id = $1 and organization_id = $2 and is_active = true",
-        [input.credentialTypeId, ctx.organization.id],
-      ),
-    ]);
+    const position = await qOne<{ id: string }>(
+      "select id from positions where id = $1 and organization_id = $2 and is_active = true",
+      [input.positionId, ctx.organization.id],
+    );
+    const credential = await qOne<{ id: string }>(
+      "select id from credential_types where id = $1 and organization_id = $2 and is_active = true",
+      [input.credentialTypeId, ctx.organization.id],
+    );
     if (!position || !credential) throw new NotFoundError("Company position or certification not found.");
     if (input.required) {
       // Check previously assigned future shifts before changing eligibility
