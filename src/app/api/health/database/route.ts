@@ -25,31 +25,29 @@ export async function GET() {
   }
   try {
     const sql = await getSql();
-    const rows = await sql.query<{
-      schema_ready: boolean;
-      demo_ready: boolean;
-    }>(
+    const tables = await sql.query<{ schema_ready: boolean }>(
       `select (
           to_regclass('public.organizations') is not null
           and to_regclass('public.memberships') is not null
           and to_regclass('public.rosters') is not null
           and to_regclass('public.shifts') is not null
           and to_regclass('public."user"') is not null
-        ) as schema_ready,
-        exists (
-          select 1 from public.organizations
-          where id = 'org_demo_northstar_v1' and name = 'Northstar Workforce [DEMO]'
-        ) as demo_ready`,
+        ) as schema_ready`,
     );
-    const schemaReady = rows[0]?.schema_ready === true;
-    if (!schemaReady) {
+    if (tables[0]?.schema_ready !== true) {
       return NextResponse.json(
         { ok: false, database: "connected", schemaReady: false, demoReady: false },
         { status: 503, headers: noStore },
       );
     }
+    const demo = await sql.query<{ exists: boolean }>(
+      `select exists (
+        select 1 from public.organizations
+        where id = 'org_demo_northstar_v1' and name = 'Northstar Workforce [DEMO]'
+      ) as exists`,
+    );
     return NextResponse.json(
-      { ok: true, database: "connected", schemaReady: true, demoReady: rows[0]?.demo_ready === true },
+      { ok: true, database: "connected", schemaReady: true, demoReady: demo[0]?.exists === true },
       { status: 200, headers: noStore },
     );
   } catch {
