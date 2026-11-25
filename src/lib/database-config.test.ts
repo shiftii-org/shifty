@@ -21,3 +21,20 @@ test("PGLite remains an opt-in convenience only when running locally", () => {
   assert.equal(selectDatabaseSource({ NODE_ENV: "test" }), "pglite");
   assert.equal(selectDatabaseSource({}), "pglite");
 });
+
+test("explicit isolated CI permits an ephemeral Next.js test DB, never Vercel", () => {
+  assert.equal(selectDatabaseSource({
+    NODE_ENV:"production", CI:"true", SHIFTII_ENABLE_EPHEMERAL_TEST_DB:"true",
+  }),"pglite");
+  assert.equal(selectDatabaseSource({
+    NODE_ENV:"production", CI:"false", SHIFTII_ENABLE_EPHEMERAL_TEST_DB:"true",
+  }),"unconfigured");
+  assert.equal(selectDatabaseSource({
+    NODE_ENV:"production", CI:"true", SHIFTII_ENABLE_EPHEMERAL_TEST_DB:"true",
+    VERCEL_ENV:"production",
+  }),"unconfigured");
+  assert.equal(selectDatabaseSource({
+    NODE_ENV:"production", CI:"true", SHIFTII_ENABLE_EPHEMERAL_TEST_DB:"true",
+    VERCEL_ENV:"preview",
+  }),"unconfigured");
+});
