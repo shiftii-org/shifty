@@ -10,6 +10,8 @@ export const dbSource: DbSource = selectDatabaseSource({
   DATABASE_URL: databaseUrl,
   NODE_ENV: process.env.NODE_ENV,
   VERCEL_ENV: process.env.VERCEL_ENV,
+  CI: process.env.CI,
+  SHIFTII_ENABLE_EPHEMERAL_TEST_DB: process.env.SHIFTII_ENABLE_EPHEMERAL_TEST_DB,
 });
 
 /**
