@@ -4,6 +4,7 @@ import { addDays } from "./time";
 import { minutesOfDayInZone } from "./local-time";
 import { bool, dateStr, iso, json, num, q, str } from "./db.server";
 import { NotFoundError } from "./errors";
+import { credentialCoversShift } from "./credential-rules";
 import type { SessionContext } from "./types";
 
 export async function loadConstraintInput(opts: {
@@ -44,15 +45,23 @@ export async function loadConstraintInput(opts: {
       where pcr.position_id = $1`,
     [str(s.position_id)],
   );
-  const held = await q<{ credential_type_id: string; expires_at: string | null }>(
-    `select credential_type_id, expires_at::text as expires_at
+  const held = await q<{
+    credential_type_id: string;
+    issued_at: string | null;
+    expires_at: string | null;
+    verified_at: string | null;
+  }>(
+    `select credential_type_id, issued_at::text as issued_at,
+            expires_at::text as expires_at, verified_at::text as verified_at
        from employee_credentials where membership_id = $1`,
     [opts.membershipId],
   );
   const heldOk = new Set(
-    held
-      .filter((h) => !h.expires_at || dateStr(h.expires_at) >= dateStr(s.date))
-      .map((h) => str(h.credential_type_id)),
+    held.filter((h) => credentialCoversShift({
+      issuedAt: h.issued_at ? dateStr(h.issued_at) : null,
+      expiresAt: h.expires_at ? dateStr(h.expires_at) : null,
+      verified: Boolean(h.verified_at),
+    }, dateStr(s.date))).map((h) => str(h.credential_type_id)),
   );
   const missing = required.filter((r) => !heldOk.has(str(r.credential_type_id))).map((r) => str(r.name));
 
