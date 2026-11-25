@@ -89,6 +89,29 @@ export async function setPositionCredentialRequirement(
     ]);
     if (!position || !credential) throw new NotFoundError("Company position or certification not found.");
     if (input.required) {
+      // Check previously assigned future shifts before changing eligibility
+      // rules. They must not silently become unqualified.
+      const future = await q<{
+        id: string; date: string; issued_at: string | null; expires_at: string | null;
+        verified_at: string | null;
+      }>(
+        `select s.id, s.date::text as date, ec.issued_at::text as issued_at,
+                ec.expires_at::text as expires_at, ec.verified_at::text as verified_at
+           from shifts s
+           left join employee_credentials ec on ec.membership_id = s.employee_id
+                and ec.credential_type_id = $3
+          where s.organization_id = $1 and s.position_id = $2
+            and s.status = 'ASSIGNED' and s.end_at > now()`,
+        [ctx.organization.id, position.id, credential.id],
+      );
+      if (future.some((row) => !credentialCoversShift({
+        issuedAt: row.issued_at, expiresAt: row.expires_at,
+        verified: Boolean(row.verified_at),
+      }, row.date))) {
+        throw new ConflictError(
+          "Some upcoming assigned shifts lack this certification. Reassign or verify them first.",
+        );
+      }
       await q(
         `insert into position_credential_requirements (id, position_id, credential_type_id)
          values ($1,$2,$3) on conflict (position_id,credential_type_id) do nothing`,
