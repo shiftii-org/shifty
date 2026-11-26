@@ -3,7 +3,17 @@
  * Server services return these shapes; a later UI plugs in against this contract.
  */
 
-export type MembershipRole = "OWNER" | "ADMIN" | "MANAGER" | "EMPLOYEE";
+export type MembershipRole =
+  | "OWNER"
+  | "ADMIN"
+  | "MANAGER"
+  | "HEAD_DOCTOR"
+  | "CHARGE_NURSE"
+  | "DOCTOR"
+  | "NURSE"
+  | "MIDWIFE"
+  | "TECHNICIAN"
+  | "EMPLOYEE";
 export type MembershipStatus = "PENDING" | "ACTIVE" | "INACTIVE";
 export type ClaimApprovalMode = "AUTO" | "MANAGER_APPROVAL";
 export type RosterStatus = "DRAFT" | "PUBLISHED" | "ARCHIVED";
@@ -15,12 +25,27 @@ export type ShiftClaimStatus = "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED"
 export type ShiftSwapStatus =
   | "PENDING_TARGET"
   | "TARGET_ACCEPTED"
+  | "PENDING_HEAD_DOCTOR"
   | "PENDING_MANAGER"
   | "APPROVED"
   | "REJECTED"
   | "DECLINED"
   | "CANCELLED";
 export type ShiftWindow = "DAY" | "EVENING" | "NIGHT";
+export type ConfidentialityLevel = "STANDARD" | "RESTRICTED" | "SENSITIVE";
+export type OrgType = "HOSPITAL" | "CLINIC" | "HEALTH_SYSTEM" | "AGENCY" | "OTHER";
+export type OpenPriority = "LOW" | "NORMAL" | "HIGH" | "CRITICAL";
+export type RecommendationSource = "LOCAL_SCORE" | "AI_AGENT" | "MANUAL";
+export type RecommendationStatus = "PROPOSED" | "ACCEPTED" | "REJECTED" | "EXPIRED";
+export type AgentRunStatus = "QUEUED" | "RUNNING" | "COMPLETED" | "FAILED" | "AWAITING_REVIEW";
+export type AgentProposalKind =
+  | "ASSIGN_SHIFT"
+  | "OPEN_SHIFT"
+  | "SWAP_DECISION"
+  | "STAFFING_ADJUSTMENT"
+  | "NOTE";
+export type AgentProposalStatus = "PROPOSED" | "ACCEPTED" | "REJECTED" | "APPLIED" | "EXPIRED";
+export type EmailStatus = "QUEUED" | "SENDING" | "SENT" | "FAILED" | "DEFERRED" | "CANCELLED";
 
 export type StaffPreferences = {
   preferDays?: boolean;
@@ -37,12 +62,22 @@ export type Organization = {
   timezone: string;
   weekStartDay: number;
   locale: string;
+  orgType: OrgType;
+  bedCount: number | null;
+  accreditation: string | null;
+  regulatoryRegion: string | null;
+  confidentialityLevel: ConfidentialityLevel;
+  accessCode: string | null;
+  emailFromName: string | null;
+  settings: Record<string, unknown>;
+  branding: Record<string, unknown>;
   defaultShiftLengthMinutes: number;
   defaultBreakMinutes: number;
   maxWeeklyHours: number | null;
   minRestHoursBetweenShifts: number;
   claimApprovalMode: ClaimApprovalMode;
   swapApprovalMode: ClaimApprovalMode;
+  swapRequiresHeadDoctor: boolean;
   aiFeaturesEnabled: boolean;
   isActive: boolean;
 };
@@ -51,7 +86,23 @@ export type Location = {
   id: string;
   organizationId: string;
   name: string;
+  code: string | null;
+  description: string | null;
   unitType: string | null;
+  unitKind: string | null;
+  floor: string | null;
+  wing: string | null;
+  bedCapacity: number | null;
+  confidentialityLevel: ConfidentialityLevel;
+  /** Optional coordinates for a future 3-D floor view. */
+  map: {
+    x: number | null;
+    y: number | null;
+    z: number | null;
+    width: number | null;
+    depth: number | null;
+    meta: Record<string, unknown>;
+  };
   isActive: boolean;
 };
 
@@ -71,6 +122,12 @@ export type Membership = {
   initials: string;
   role: MembershipRole;
   status: MembershipStatus;
+  jobTitle: string | null;
+  seniority: number;
+  canApproveSwaps: boolean;
+  permissions: Record<string, unknown>;
+  contactEmail: string | null;
+  emailNotifications: boolean;
   targetWeeklyHours: number | null;
   preferences: StaffPreferences;
   isSynthetic: boolean;
@@ -99,6 +156,10 @@ export type Shift = {
   notes: string | null;
   status: ShiftStatus;
   isOpenForClaim: boolean;
+  shiftWindow: ShiftWindow | null;
+  templateId: string | null;
+  openPriority: OpenPriority;
+  fillDeadline: string | null;
   version: number;
   locationName?: string;
   unitType?: string | null;
@@ -128,6 +189,9 @@ export type ShiftSwap = {
   targetShiftId: string;
   status: ShiftSwapStatus;
   note: string | null;
+  decisionReason: string | null;
+  headDoctorId: string | null;
+  headDoctorReviewedAt: string | null;
   createdAt: string;
   initiatorName?: string;
   targetName?: string;
@@ -298,4 +362,134 @@ export type AiExplainResult = {
   model: string | null;
   text: string;
   degraded: boolean;
+};
+
+// ── Orchestration foundation ────────────────────────────────────────────────
+
+export type ShiftTemplate = {
+  id: string;
+  organizationId: string;
+  locationId: string | null;
+  positionId: string | null;
+  name: string;
+  shiftWindow: ShiftWindow;
+  startMinute: number;
+  endMinute: number;
+  breakMinutes: number;
+  requiredHeadcount: number;
+  colorHex: string | null;
+  isActive: boolean;
+};
+
+export type StaffingRequirement = {
+  id: string;
+  organizationId: string;
+  locationId: string;
+  positionId: string | null;
+  shiftWindow: ShiftWindow;
+  dayOfWeek: number | null;
+  requiredCount: number;
+  minSeniority: number;
+  notes: string | null;
+  effectiveFrom: string | null;
+  effectiveUntil: string | null;
+};
+
+/** One ward × one day × one shift window, ready for a 3-D floor view. */
+export type WardOccupancyCell = {
+  wardId: string;
+  wardName: string;
+  wardCode: string | null;
+  floor: string | null;
+  wing: string | null;
+  bedCapacity: number | null;
+  map: Location["map"];
+  date: string;
+  shiftWindow: ShiftWindow;
+  required: number;
+  assigned: number;
+  open: number;
+  gap: number;
+  /** 0–1, assigned / max(required, 1). */
+  coverage: number;
+  assignedNames: string[];
+};
+
+export type WardOccupancyDay = {
+  date: string;
+  wards: WardOccupancyCell[];
+};
+
+export type WardFloorPlan = {
+  organizationId: string;
+  from: string;
+  to: string;
+  wards: Location[];
+  days: WardOccupancyDay[];
+};
+
+export type OpenShiftMatch = {
+  shiftId: string;
+  membershipId: string;
+  displayName: string;
+  rank: number;
+  score: number;
+  eligible: boolean;
+  reasons: string[];
+  warnings: string[];
+  hours7d: number;
+  source: RecommendationSource;
+};
+
+export type OpenShiftPairing = {
+  shift: Shift;
+  candidates: OpenShiftMatch[];
+  generatedAt: string;
+  source: RecommendationSource;
+};
+
+export type AgentRun = {
+  id: string;
+  organizationId: string;
+  agentName: string;
+  trigger: string;
+  status: AgentRunStatus;
+  input: Record<string, unknown>;
+  output: Record<string, unknown> | null;
+  provider: string | null;
+  model: string | null;
+  errorCode: string | null;
+  createdByMembershipId: string | null;
+  createdAt: string;
+  completedAt: string | null;
+};
+
+export type AgentProposal = {
+  id: string;
+  organizationId: string;
+  runId: string | null;
+  kind: AgentProposalKind;
+  shiftId: string | null;
+  payload: Record<string, unknown>;
+  confidence: number | null;
+  rationale: string | null;
+  status: AgentProposalStatus;
+  reviewedByMembershipId: string | null;
+  reviewedAt: string | null;
+  createdAt: string;
+};
+
+export type EmailMessage = {
+  id: string;
+  organizationId: string;
+  recipientMembershipId: string | null;
+  recipientEmail: string;
+  template: string;
+  subject: string;
+  status: EmailStatus;
+  attempts: number;
+  errorCode: string | null;
+  providerMessageId: string | null;
+  createdAt: string;
+  sentAt: string | null;
 };

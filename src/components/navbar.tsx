@@ -77,7 +77,7 @@ export function Navbar() {
             Login
             <ChevronRight size={14} strokeWidth={1.75} />
           </Link>
-          <Link href="/signup" className="rounded-md cursor-pointer bg-[#176343] px-4 py-2 text-sm text-white hover:bg-[#10492F] transition-colors">
+          <Link href="/signup" className="rounded-md cursor-pointer bg-[#111110]  px-4 py-2 text-sm text-white hover:bg-[#10492F] transition-colors">
             Get Started
           </Link>
         </div>
@@ -122,7 +122,7 @@ export function Navbar() {
             <Link href="/login" className="flex-1 rounded-md border border-black/70 px-4 py-2 text-center text-sm">
               Login
             </Link>
-            <Link href="/signup" className="flex-1 rounded-md bg-[#176343] px-4 py-2 text-center text-sm text-white">
+            <Link href="/signup" className="flex-1 rounded-md bg-[#111110]  px-4 py-2 text-center text-sm text-white">
               Get Started
             </Link>
           </div>

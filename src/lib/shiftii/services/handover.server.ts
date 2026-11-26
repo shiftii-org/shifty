@@ -10,6 +10,7 @@ import { audit } from "../audit.server";
 import { notify } from "../notify.server";
 import { ForbiddenError, NotFoundError } from "../errors";
 import { getShift } from "./shifts.server";
+import { logSensitiveAccess } from "./sensitive.server";
 import type { HandoverNote, SessionContext } from "../types";
 
 function mapNote(r: Record<string, unknown>): HandoverNote {
@@ -53,7 +54,16 @@ export async function listHandovers(
       limit $${params.length}`,
     params,
   );
-  return rows.map(mapNote);
+  const mapped = rows.map(mapNote);
+  if (mapped.some((n) => n.freeTextNote)) {
+    await logSensitiveAccess(ctx, {
+      entityType: "handover_note",
+      entityId: filters.locationId ?? "all",
+      purpose: "Handover review",
+      accessKind: "READ",
+    });
+  }
+  return mapped;
 }
 
 export async function createHandover(

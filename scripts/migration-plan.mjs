@@ -1,46 +1,42 @@
-// @ts-check
 /**
- * Migration bookkeeping shared by the two appliers — `scripts/migrate.mjs`
- * (deploy, `readdir`) and `src/lib/db.ts` (PGLite preview, `import.meta.glob`).
+ * Migration discovery shared by the runtime (`src/lib/db.ts`), the deploy
+ * migration script and the tests.
  *
- * Applied files are keyed by BASENAME, so the same file applies once no matter
- * which directory it is globbed from. That is what makes the auth schema safe to
- * copy from `migrations/auth/` into `migrations/` when an app turns sign-in on:
- * a database that already has `0001_auth.sql` will not re-run it.
- *
- * Neither applier descends into subdirectories, so `migrations/auth/*.sql` is
- * out of scope for both until it is copied up.
+ * Applied migrations are keyed by FILE BASENAME, not by full path: the auth
+ * schema is copied from `migrations/auth/0001_auth.sql` to `migrations/0001_auth.sql`,
+ * so a database that already ran it must not run it again from the new location.
  */
 
+import { basename } from "node:path";
+
 /**
- * The `_migrations` key for a migration path (or bare filename).
- * @param {string} path
- * @returns {string}
+ * True for a file entry that should be treated as a migration.
+ * @param {unknown} entry
  */
-export function migrationName(path) {
-  return path.split("/").pop() ?? path;
+export function isMigrationFile(entry) {
+  return typeof entry === "string" && entry.endsWith(".sql");
 }
 
 /**
- * @param {string} path
- * @returns {boolean}
+ * The stable key recorded in `_migrations`.
+ * @param {unknown} filePath
  */
-export function isMigrationFile(path) {
-  return path.endsWith(".sql");
+export function migrationName(filePath) {
+  return basename(String(filePath));
 }
 
 /**
- * Migrations in `paths` that are not yet in `applied`, in apply order.
- * Non-`.sql` entries (a `readdir` also yields `migrations/auth/`) are dropped.
- * @param {Iterable<string>} paths
- * @param {Iterable<string>} applied
- * @returns {Array<{ name: string, path: string }>}
+ * Pending migrations in filename order.
+ *
+ * @param {string[]} paths  candidate paths or bare filenames
+ * @param {string[]} applied basenames already recorded in `_migrations`
+ * @returns {{ name: string, path: string }[]}
  */
-export function pendingMigrations(paths, applied) {
-  const done = new Set(applied);
-  return [...paths]
+export function pendingMigrations(paths, applied = []) {
+  const done = new Set((applied ?? []).map((name) => migrationName(name)));
+  return (paths ?? [])
     .filter(isMigrationFile)
     .map((path) => ({ name: migrationName(path), path }))
-    .sort((a, b) => a.name.localeCompare(b.name))
-    .filter(({ name }) => !done.has(name));
+    .filter(({ name }) => !done.has(name))
+    .sort((a, b) => a.name.localeCompare(b.name));
 }

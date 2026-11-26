@@ -21,9 +21,12 @@ export default function Page() {
       </div>
       {/* <LogoCloud /> */}
       <PlatformSplit />
+      
       <HarveyII />
-      <FindYourFit />
-      <Testimonial />
+      {/* <FindYourFit /> */}
+
+
+      {/* <Testimonial /> */}
       <RealImpact />
       <Footer />
     </main>

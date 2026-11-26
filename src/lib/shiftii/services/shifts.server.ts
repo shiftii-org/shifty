@@ -23,6 +23,10 @@ export function mapShift(r: Record<string, unknown>): Shift {
     notes: strOrNull(r.notes),
     status: str(r.status) as ShiftStatus,
     isOpenForClaim: bool(r.is_open_for_claim),
+    shiftWindow: (strOrNull(r.shift_window) as Shift["shiftWindow"]) ?? null,
+    templateId: strOrNull(r.template_id),
+    openPriority: (str(r.open_priority) as Shift["openPriority"]) || "NORMAL",
+    fillDeadline: r.fill_deadline ? iso(r.fill_deadline) : null,
     version: num(r.version),
     locationName: strOrNull(r.location_name) ?? undefined,
     unitType: (r.unit_type as string | null) ?? undefined,
@@ -114,6 +118,10 @@ export async function createShift(
     employeeId?: string | null;
     openForClaim?: boolean;
     notes?: string | null;
+    shiftWindow?: Shift["shiftWindow"];
+    openPriority?: Shift["openPriority"];
+    fillDeadline?: string | null;
+    templateId?: string | null;
   },
 ): Promise<Shift> {
   assertManager(ctx);
@@ -162,11 +170,14 @@ export async function createShift(
     await q(
       `insert into shifts (
          id, organization_id, roster_id, location_id, position_id, employee_id,
-         date, start_at, end_at, break_minutes, notes, status, is_open_for_claim, created_by_id
-       ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+         date, start_at, end_at, break_minutes, notes, status, is_open_for_claim, created_by_id,
+         shift_window, open_priority, fill_deadline, template_id
+       ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`,
       [id, ctx.organization.id, input.rosterId, input.locationId, input.positionId,
        input.employeeId ?? null, input.date, input.startAt, input.endAt, breakMinutes,
-       input.notes ?? null, status, Boolean(input.openForClaim) && !assigned, ctx.membership.id],
+       input.notes ?? null, status, Boolean(input.openForClaim) && !assigned, ctx.membership.id,
+       input.shiftWindow ?? null, input.openPriority ?? "NORMAL", input.fillDeadline ?? null,
+       input.templateId ?? null],
     );
     if (input.employeeId) {
       const check = await evaluateAssignment(ctx, input.employeeId, id);
@@ -214,6 +225,20 @@ export async function assignShift(
     if (!updated.length) {
       throw new ConflictError("Shift was updated by someone else. Reload and retry.");
     }
+    await q(
+      `insert into shift_assignment_events (
+         id, organization_id, shift_id, from_membership_id, to_membership_id,
+         action, actor_membership_id, reason
+       ) values ($1,$2,$3,$4,$5,'ASSIGNED',$6,'Manager assignment')`,
+      [
+        nid("sae"),
+        ctx.organization.id,
+        input.shiftId,
+        current.employeeId,
+        input.membershipId,
+        ctx.membership.id,
+      ],
+    );
     await audit({
       ctx,
       action: "SHIFT_ASSIGNED",
@@ -229,6 +254,15 @@ export async function assignShift(
       title: "Shift assigned",
       message: `You were assigned ${current.locationName ?? "a unit"} on ${current.date}.`,
       link: "/app?view=me",
+      email: {
+        template: "shift_reminder",
+        data: {
+          organizationName: ctx.organization.name,
+          shiftDate: current.date,
+          shiftWindow: current.shiftWindow ?? undefined,
+          wardName: current.locationName,
+        },
+      },
     });
     return getShift(ctx, input.shiftId);
   });
@@ -256,6 +290,13 @@ export async function unassignShift(
     ],
   );
   if (current.employeeId) {
+    await q(
+      `insert into shift_assignment_events (
+         id, organization_id, shift_id, from_membership_id, to_membership_id,
+         action, actor_membership_id, reason
+       ) values ($1,$2,$3,$4,null,'UNASSIGNED',$5,'Manager unassigned shift')`,
+      [nid("sae"), ctx.organization.id, input.shiftId, current.employeeId, ctx.membership.id],
+    );
     await notify({
       organizationId: ctx.organization.id,
       recipientIds: [current.employeeId],
@@ -320,6 +361,38 @@ export async function setOpenForClaim(
     entityType: "shift",
     entityId: input.shiftId,
   });
+  if (input.open) {
+    // Alert staff already linked to the ward — in-app plus the Resend outbox.
+    const candidates = await q<{ id: string }>(
+      `select distinct m.id
+         from memberships m
+         join membership_locations ml on ml.membership_id = m.id
+        where m.organization_id = $1 and m.status = 'ACTIVE'
+          and m.is_synthetic = false and ml.location_id = $2
+        order by m.id
+        limit 25`,
+      [ctx.organization.id, current.locationId],
+    );
+    if (candidates.length) {
+      await notify({
+        organizationId: ctx.organization.id,
+        recipientIds: candidates.map((row) => row.id),
+        type: "OPEN_SHIFT_ALERT",
+        title: "Open shift available",
+        message: `${current.locationName ?? "A ward"} has an open shift on ${current.date}.`,
+        link: "/app?view=open",
+        email: {
+          template: "open_shift_alert",
+          data: {
+            organizationName: ctx.organization.name,
+            shiftDate: current.date,
+            shiftWindow: current.shiftWindow ?? undefined,
+            wardName: current.locationName,
+          },
+        },
+      });
+    }
+  }
   return getShift(ctx, input.shiftId);
 }
 

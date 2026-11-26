@@ -2,8 +2,8 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
-  // Include full origin URLs with http://
-  allowedDevOrigins: ["http://127.0.0.1:3000", "http://localhost:3000"],
+  // Hostnames only (no scheme/port) — Next matches these against the request origin.
+  allowedDevOrigins: ["127.0.0.1", "localhost"],
   serverExternalPackages: ["kysely", "pg", "@electric-sql/pglite"],
   async headers() {
     return [

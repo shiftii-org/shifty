@@ -77,7 +77,7 @@ export function PlatformSplit() {
   };
 
   return (
-    <section className="mx-auto max-w-7xl px-6 py-16 lg:px-10 lg:py-24">
+    <section className="mx-auto max-w-7xl px-6 py-16 lg:px-10 lg:py-24 lg:mt-16">
       <div className="text-center max-w-2xl mx-auto mb-12">
         <h2 className="font-serif text-3xl sm:text-5xl mb-4">
           One Platform for Hospital Operations

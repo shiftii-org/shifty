@@ -1,8 +1,8 @@
 import { nid } from "../ids";
 import { iso, q, qOne, str, strOrNull, withTransaction } from "../db.server";
-import { assertManager } from "../context.server";
+import { assertManager, assertSwapApprover, isSwapApprover } from "../context.server";
 import { audit } from "../audit.server";
-import { managerIds, notify } from "../notify.server";
+import { managerIds, notify, swapApproverIds } from "../notify.server";
 import { AppError, ConflictError, ConstraintError, ForbiddenError, NotFoundError } from "../errors";
 import { evaluateAssignment } from "../eligibility.server";
 import { getShift } from "./shifts.server";
@@ -18,6 +18,9 @@ function mapSwap(r: Record<string, unknown>): ShiftSwap {
     targetShiftId: str(r.target_shift_id),
     status: str(r.status) as ShiftSwapStatus,
     note: strOrNull(r.note),
+    decisionReason: strOrNull(r.decision_reason),
+    headDoctorId: strOrNull(r.head_doctor_id),
+    headDoctorReviewedAt: r.head_doctor_reviewed_at ? iso(r.head_doctor_reviewed_at) : null,
     createdAt: iso(r.created_at),
     initiatorName: strOrNull(r.initiator_name) ?? undefined,
     targetName: strOrNull(r.target_name) ?? undefined,
@@ -92,6 +95,17 @@ export async function proposeSwap(
     title: "Shift swap request",
     message: `${ctx.membership.displayName} wants to swap ${mine.date} for your ${theirs.date} shift.`,
     link: "/app?view=swaps",
+    email: {
+      template: "swap_requested",
+      data: {
+        organizationName: ctx.organization.name,
+        actorName: ctx.membership.displayName,
+        shiftDate: theirs.date,
+        shiftWindow: theirs.shiftWindow ?? undefined,
+        wardName: theirs.locationName,
+        reason: input.note,
+      },
+    },
   });
   await audit({ ctx, action: "SWAP_PROPOSED", entityType: "shift_swap", entityId: id });
   const all = await listSwaps(ctx, { mine: true });
@@ -114,27 +128,63 @@ export async function respondToSwap(
     }
 
     const auto = input.accept && ctx.organization.swapApprovalMode === "AUTO";
+    const requiresHeadDoctor =
+      input.accept && !auto && ctx.organization.swapRequiresHeadDoctor;
     // Do the actual reassignment BEFORE recording approval. If eligibility
     // fails, the transaction rolls back the swap request and both shifts.
     if (auto) await executeSwap(ctx, row);
 
     const status: ShiftSwapStatus = input.accept
-      ? auto ? "APPROVED" : "PENDING_MANAGER"
+      ? auto
+        ? "APPROVED"
+        : requiresHeadDoctor
+          ? "PENDING_HEAD_DOCTOR"
+          : "PENDING_MANAGER"
       : "DECLINED";
     await q(
       `update shift_swap_requests
-          set status = $1, target_responded_at = now(), updated_at = now()
+          set status = $1, target_responded_at = now(), updated_at = now(),
+              approval_chain = coalesce(approval_chain, '[]'::jsonb) || $4::jsonb
         where id = $2 and organization_id = $3`,
-      [status, input.swapId, ctx.organization.id],
+      [
+        status,
+        input.swapId,
+        ctx.organization.id,
+        JSON.stringify([
+          {
+            stage: "TARGET",
+            membershipId: ctx.membership.id,
+            decision: input.accept ? "ACCEPTED" : "DECLINED",
+            at: new Date().toISOString(),
+          },
+        ]),
+      ],
     );
 
+    const targetShift = input.accept ? await getShift(ctx, str(row.target_shift_id)) : null;
+
     if (input.accept && !auto) {
+      const approvers = requiresHeadDoctor
+        ? await swapApproverIds(ctx.organization.id)
+        : await managerIds(ctx.organization.id);
       await notify({
         organizationId: ctx.organization.id,
-        recipientIds: await managerIds(ctx.organization.id),
-        type: "SWAP_TARGET_RESPONDED",
-        title: "Swap ready for approval",
-        message: "Both employees agreed. Waiting on manager approval.",
+        recipientIds: approvers,
+        type: requiresHeadDoctor ? "SWAP_PENDING_HEAD_DOCTOR" : "SWAP_TARGET_RESPONDED",
+        title: requiresHeadDoctor ? "Head doctor approval needed" : "Swap ready for approval",
+        message: requiresHeadDoctor
+          ? "Both employees agreed. Hospital policy requires head doctor confirmation."
+          : "Both employees agreed. Waiting on manager approval.",
+        link: "/app?view=swaps",
+        email: {
+          template: requiresHeadDoctor ? "swap_needs_head_doctor" : "swap_target_accepted",
+          data: {
+            organizationName: ctx.organization.name,
+            shiftDate: targetShift?.date,
+            shiftWindow: targetShift?.shiftWindow ?? undefined,
+            wardName: targetShift?.locationName,
+          },
+        },
       });
     }
     await notify({
@@ -143,8 +193,22 @@ export async function respondToSwap(
       type: "SWAP_TARGET_RESPONDED",
       title: input.accept ? "Swap accepted" : "Swap declined",
       message: input.accept
-        ? auto ? "Your shift swap is complete." : "The swap is waiting for manager approval."
+        ? auto
+          ? "Your shift swap is complete."
+          : requiresHeadDoctor
+            ? "The swap is waiting for head doctor sign-off."
+            : "The swap is waiting for manager approval."
         : "The other employee declined your shift swap.",
+      link: "/app?view=swaps",
+      email: {
+        template: input.accept ? "swap_target_accepted" : "swap_rejected",
+        data: {
+          organizationName: ctx.organization.name,
+          shiftDate: targetShift?.date,
+          shiftWindow: targetShift?.shiftWindow ?? undefined,
+          wardName: targetShift?.locationName,
+        },
+      },
     });
     await audit({
       ctx,
@@ -160,39 +224,90 @@ export async function respondToSwap(
 
 export async function reviewSwap(
   ctx: SessionContext,
-  input: { swapId: string; approve: boolean },
+  input: { swapId: string; approve: boolean; reason?: string },
 ): Promise<ShiftSwap> {
-  assertManager(ctx);
   return withTransaction(async () => {
     const row = await lockSwap(ctx, input.swapId);
-    if (!["PENDING_MANAGER", "TARGET_ACCEPTED"].includes(str(row.status))) {
-      throw new ConflictError("Swap is not waiting on a manager.");
+    const current = str(row.status);
+    const requiresHeadDoctor = current === "PENDING_HEAD_DOCTOR";
+    if (requiresHeadDoctor) {
+      assertSwapApprover(ctx);
+    } else {
+      assertManager(ctx);
+    }
+    if (!["PENDING_MANAGER", "TARGET_ACCEPTED", "PENDING_HEAD_DOCTOR"].includes(current)) {
+      throw new ConflictError("Swap is not waiting on an approver.");
     }
     if (input.approve) await executeSwap(ctx, row);
 
     await q(
       `update shift_swap_requests
-          set status = $1, reviewed_by_id = $2, reviewed_at = now(), updated_at = now()
+          set status = $1, reviewed_by_id = $2, reviewed_at = now(), updated_at = now(),
+              decision_reason = $5,
+              head_doctor_id = case when $6::boolean then $2 else head_doctor_id end,
+              head_doctor_reviewed_at = case when $6::boolean then now() else head_doctor_reviewed_at end,
+              approval_chain = coalesce(approval_chain, '[]'::jsonb) || $7::jsonb
         where id = $3 and organization_id = $4`,
-      [input.approve ? "APPROVED" : "REJECTED", ctx.membership.id, input.swapId, ctx.organization.id],
+      [
+        input.approve ? "APPROVED" : "REJECTED",
+        ctx.membership.id,
+        input.swapId,
+        ctx.organization.id,
+        input.reason ?? null,
+        requiresHeadDoctor && isSwapApprover(ctx),
+        JSON.stringify([
+          {
+            stage: requiresHeadDoctor ? "HEAD_DOCTOR" : "MANAGER",
+            membershipId: ctx.membership.id,
+            decision: input.approve ? "APPROVED" : "REJECTED",
+            at: new Date().toISOString(),
+          },
+        ]),
+      ],
     );
+
+    const targetShift = await getShift(ctx, str(row.target_shift_id));
+
     await notify({
       organizationId: ctx.organization.id,
       recipientIds: [str(row.initiator_membership_id), str(row.target_membership_id)],
       type: "SWAP_DECIDED",
       title: input.approve ? "Swap approved" : "Swap rejected",
-      message: input.approve ? "Your swap is on the roster." : "A manager declined the swap.",
+      message: input.approve
+        ? "Your swap is on the roster."
+        : `The swap was declined${input.reason ? `: ${input.reason}` : "."}`,
+      link: "/app?view=swaps",
+      email: {
+        template: input.approve ? "swap_approved" : "swap_rejected",
+        data: {
+          organizationName: ctx.organization.name,
+          shiftDate: targetShift.date,
+          shiftWindow: targetShift.shiftWindow ?? undefined,
+          wardName: targetShift.locationName,
+          reason: input.reason,
+        },
+      },
     });
     await audit({
       ctx,
       action: input.approve ? "SWAP_APPROVED" : "SWAP_REJECTED",
       entityType: "shift_swap",
       entityId: input.swapId,
+      metadata: { stage: requiresHeadDoctor ? "HEAD_DOCTOR" : "MANAGER", reason: input.reason ?? null },
     });
     const found = (await listSwaps(ctx, {})).find((swap) => swap.id === input.swapId);
     if (!found) throw new NotFoundError("Swap not found after review.");
     return found;
   });
+}
+
+/** Explicit head-doctor sign-off endpoint (same transaction as reviewSwap). */
+export async function reviewSwapAsHeadDoctor(
+  ctx: SessionContext,
+  input: { swapId: string; approve: boolean; reason?: string },
+): Promise<ShiftSwap> {
+  assertSwapApprover(ctx);
+  return reviewSwap(ctx, input);
 }
 
 export async function cancelSwap(ctx: SessionContext, swapId: string): Promise<void> {
@@ -316,6 +431,13 @@ async function executeSwap(ctx: SessionContext, row: Record<string, unknown>): P
       [assignment.membershipId, assignment.shiftId, ctx.organization.id],
     );
     if (applied.length !== 1) throw new ConflictError("Swap assignment changed unexpectedly.");
+    await q(
+      `insert into shift_assignment_events (
+         id, organization_id, shift_id, from_membership_id, to_membership_id,
+         action, actor_membership_id, reason
+       ) values ($1,$2,$3,null,$4,'SWAPPED',$5,'Approved shift swap')`,
+      [nid("sae"), ctx.organization.id, assignment.shiftId, assignment.membershipId, ctx.membership.id],
+    );
   }
 }
 

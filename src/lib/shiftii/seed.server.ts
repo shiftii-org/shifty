@@ -8,7 +8,7 @@ import type { StaffPreferences } from "./types";
 type StaffSeed = {
   slug: string;
   name: string;
-  role: "MANAGER" | "EMPLOYEE";
+  role: "MANAGER" | "EMPLOYEE" | "HEAD_DOCTOR" | "CHARGE_NURSE";
   positions: string[];
   units: string[];
   primary: string;
@@ -17,14 +17,15 @@ type StaffSeed = {
 };
 
 const UNIT_DEFS = [
-  { name: "ICU", unitType: "ICU" },
-  { name: "Emergency", unitType: "ED" },
-  { name: "Med-Surg 4W", unitType: "MED_SURG" },
-  { name: "PACU", unitType: "PACU" },
-  { name: "Labor & Delivery", unitType: "LD" },
+  { name: "ICU", unitType: "ICU", code: "ICU-2A", floor: "2", wing: "A", beds: 16, map: { x: 0, z: 0, w: 24, d: 18 } },
+  { name: "Emergency", unitType: "ED", code: "ED-1A", floor: "1", wing: "A", beds: 30, map: { x: 26, z: 0, w: 30, d: 22 } },
+  { name: "Med-Surg 4W", unitType: "MED_SURG", code: "MS-4W", floor: "4", wing: "W", beds: 32, map: { x: 0, z: 20, w: 28, d: 16 } },
+  { name: "PACU", unitType: "PACU", code: "PACU-3B", floor: "3", wing: "B", beds: 12, map: { x: 30, z: 24, w: 18, d: 14 } },
+  { name: "Labor & Delivery", unitType: "LD", code: "LD-5C", floor: "5", wing: "C", beds: 14, map: { x: 50, z: 24, w: 20, d: 16 } },
 ];
 
 const POSITION_DEFS = [
+  { name: "Attending Physician", color: "#5b6f8a" },
   { name: "Charge RN", color: "#7a96a8" },
   { name: "RN", color: "#7ea889" },
   { name: "CNA", color: "#8b958e" },
@@ -40,6 +41,7 @@ const CRED_DEFS = [
 ];
 
 const STAFF: StaffSeed[] = [
+  { slug: "elias-brandt", name: "Dr. Elias Brandt", role: "HEAD_DOCTOR", positions: ["Attending Physician"], units: ["ICU", "Emergency"], primary: "ICU", prefs: { preferDays: true, preferredUnitTypes: ["ICU"] }, weekly: 48 },
   { slug: "maya-chen", name: "Maya Chen", role: "EMPLOYEE", positions: ["RN"], units: ["ICU"], primary: "ICU", prefs: { preferNights: true, preferredUnitTypes: ["ICU"] }, weekly: 36 },
   { slug: "jordan-hale", name: "Jordan Hale", role: "EMPLOYEE", positions: ["RN"], units: ["ICU", "Emergency"], primary: "ICU", prefs: { preferDays: true, preferredUnitTypes: ["ICU"] }, weekly: 36 },
   { slug: "priya-shah", name: "Priya Shah", role: "EMPLOYEE", positions: ["RN"], units: ["ICU"], primary: "ICU", prefs: { preferredUnitTypes: ["ICU"] }, weekly: 36 },
@@ -83,9 +85,12 @@ async function seedHospital(userId: string): Promise<{ organizationId: string; s
     `insert into organizations (
        id, name, slug, timezone, week_start_day, default_shift_length_minutes,
        default_break_minutes, max_weekly_hours, min_rest_hours_between_shifts,
-       claim_approval_mode, swap_approval_mode, ai_features_enabled
-     ) values ($1,$2,$3,$4,1,720,30,60,10,'MANAGER_APPROVAL','MANAGER_APPROVAL', true)`,
-    [orgId, "Harborview Memorial", slug, tz],
+       claim_approval_mode, swap_approval_mode, ai_features_enabled,
+       org_type, bed_count, accreditation, regulatory_region,
+       confidentiality_level, swap_requires_head_doctor, email_from_name
+     ) values ($1,$2,$3,$4,1,720,30,60,10,'MANAGER_APPROVAL','MANAGER_APPROVAL',true,
+               'HOSPITAL',$5,$6,$7,'RESTRICTED',true,$8)`,
+    [orgId, "Harborview Memorial", slug, tz, 412, "Joint Commission", "US-NE", "Harborview Memorial"],
   );
 
   const locByName = new Map<string, string>();
@@ -93,8 +98,15 @@ async function seedHospital(userId: string): Promise<{ organizationId: string; s
   for (const u of UNIT_DEFS) {
     const id = nid("loc");
     await q(
-      `insert into locations (id, organization_id, name, unit_type) values ($1,$2,$3,$4)`,
-      [id, orgId, u.name, u.unitType],
+      `insert into locations (
+         id, organization_id, name, code, unit_type, floor, wing, bed_capacity,
+         confidentiality_level, map_x, map_y, map_z, map_width, map_depth
+       ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+      [
+        id, orgId, u.name, u.code, u.unitType, u.floor, u.wing, u.beds,
+        u.unitType === "ICU" ? "RESTRICTED" : "STANDARD",
+        u.map.x, Number(u.floor), u.map.z, u.map.w, u.map.d,
+      ],
     );
     locByName.set(u.name, id);
     locByType.set(u.unitType, id);
@@ -185,6 +197,42 @@ async function seedHospital(userId: string): Promise<{ organizationId: string; s
   const rosterId = nid("rst");
   const start = addDays(today, -4);
   const end = addDays(today, 10);
+
+  // Shift templates + staffing demand per ward/window (drives `buildRosterDraft`).
+  for (const unit of UNIT_DEFS) {
+    const locId = locByName.get(unit.name)!;
+    const need = BASELINE[unit.unitType] ?? { DAY: 1, NIGHT: 0 };
+    for (const window of ["DAY", "NIGHT"] as const) {
+      const count = window === "DAY" ? need.DAY : need.NIGHT;
+      if (count <= 0) continue;
+      const span = window === "DAY" ? { start: 7, end: 19 } : { start: 19, end: 7 };
+      await q(
+        `insert into shift_templates (
+           id, organization_id, location_id, name, shift_window,
+           start_minute, end_minute, break_minutes, required_headcount
+         ) values ($1,$2,$3,$4,$5,$6,$7,30,$8)`,
+        [
+          nid("tpl"), orgId, locId,
+          `${unit.name} ${window === "DAY" ? "day" : "night"}`,
+          window, span.start * 60, span.end * 60, count,
+        ],
+      );
+      await q(
+        `insert into staffing_requirements (
+           id, organization_id, location_id, shift_window, day_of_week, required_count, min_seniority
+         ) values ($1,$2,$3,$4,null,$5,0)`,
+        [nid("req"), orgId, locId, window, count],
+      );
+    }
+  }
+  // Emergency runs a 24-hour operation.
+  await q(
+    `insert into staffing_requirements (
+       id, organization_id, location_id, shift_window, day_of_week, required_count, min_seniority
+     ) values ($1,$2,$3,'EVENING',null,2,0)`,
+    [nid("req"), orgId, locByName.get("Emergency")],
+  );
+
   await q(
     `insert into rosters (
        id, organization_id, name, start_date, end_date, status,
@@ -295,11 +343,12 @@ async function seedHospital(userId: string): Promise<{ organizationId: string; s
     await q(
       `insert into shifts (
          id, organization_id, roster_id, location_id, position_id, employee_id,
-         date, start_at, end_at, break_minutes, status, is_open_for_claim, created_by_id
-       ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,30,$10,$11,$12)`,
+         date, start_at, end_at, break_minutes, status, is_open_for_claim, created_by_id,
+         shift_window
+       ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,30,$10,$11,$12,$13)`,
       [
         s.id, orgId, rosterId, s.locationId, s.positionId, s.employeeId,
-        s.date, s.startAt, s.endAt, s.status, s.open, meId,
+        s.date, s.startAt, s.endAt, s.status, s.open, meId, s.window,
       ],
     );
   }
@@ -474,11 +523,12 @@ async function insertMembership(opts: {
   await q(
     `insert into memberships (
        id, organization_id, user_id, display_name, initials, role, status,
-       target_weekly_hours, preferences, is_synthetic
-     ) values ($1,$2,$3,$4,$5,$6,'ACTIVE',$7,$8::jsonb,$9)`,
+       target_weekly_hours, preferences, is_synthetic, can_approve_swaps
+     ) values ($1,$2,$3,$4,$5,$6,'ACTIVE',$7,$8::jsonb,$9,$10)`,
     [
       opts.id, opts.orgId, opts.userId, opts.name, initialsFrom(opts.name),
       opts.role, opts.weekly, JSON.stringify(opts.prefs), opts.synthetic,
+      opts.role === "HEAD_DOCTOR",
     ],
   );
 }

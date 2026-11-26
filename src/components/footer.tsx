@@ -55,21 +55,29 @@ export function Footer() {
   ];
 
   return (
-    <footer className="bg-white py-16 px-4 sm:px-6">
+    <footer className="relative overflow-hidden bg-[#1F1D1A] px-4 py-16 sm:px-6">
+      {/* Texture: soft top light + two layers of film grain */}
+      <div aria-hidden="true" className="pointer-events-none absolute inset-0">
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgba(255,255,255,0.07),transparent_62%)]" />
+        <div className="footer-noise absolute inset-0 opacity-[0.5] mix-blend-overlay" />
+        <div className="footer-noise-fine absolute inset-0 opacity-[0.25] mix-blend-soft-light" />
+        <div className="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black/25 to-transparent" />
+      </div>
+
       {/* Main card */}
-      <div className="mx-auto max-w-6xl rounded-2xl bg-white px-8 py-12 ">
+      <div className="relative mx-auto max-w-6xl px-8 py-12">
         {/* Link columns */}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-10 lg:gap-8">
           {columns.map((col) => (
             <div key={col.title} className="flex flex-col gap-3.5">
-              <p className="text-[13px] font-medium text-[#111110]/45 tracking-wide">
+              <p className="text-[13px] font-medium text-white/40 tracking-wide">
                 {col.title}
               </p>
               {col.links.map((link) => (
                 <a
                   key={link}
                   href="#"
-                  className="text-[14px] text-[#111110]/80 hover:text-[#111110] transition-colors"
+                  className="text-[14px] text-white/70 hover:text-white transition-colors"
                 >
                   {link}
                 </a>
@@ -79,14 +87,14 @@ export function Footer() {
 
           {/* Follow Us column */}
           <div className="flex flex-col gap-3.5">
-            <p className="text-[13px] font-medium text-[#111110]/45 tracking-wide">
+            <p className="text-[13px] font-medium text-white/40 tracking-wide">
               Follow Us
             </p>
             <div className="flex items-center gap-3 mt-1">
               {/* X / Twitter */}
               <a
                 href="#"
-                className="text-[#111110]/70 hover:text-[#111110] transition-colors"
+                className="text-white/60 hover:text-white transition-colors"
                 aria-label="X"
               >
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
@@ -96,7 +104,7 @@ export function Footer() {
               {/* Instagram */}
               <a
                 href="#"
-                className="text-[#111110]/70 hover:text-[#111110] transition-colors"
+                className="text-white/60 hover:text-white transition-colors"
                 aria-label="Instagram"
               >
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
@@ -108,7 +116,7 @@ export function Footer() {
               {/* LinkedIn */}
               <a
                 href="#"
-                className="text-[#111110]/70 hover:text-[#111110] transition-colors"
+                className="text-white/60 hover:text-white transition-colors"
                 aria-label="LinkedIn"
               >
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
@@ -119,10 +127,10 @@ export function Footer() {
 
             {/* Contact block (optional – mirrors the image) */}
             <div className="mt-8 space-y-1">
-              <p className="text-[13px] text-[#111110]/45">Contact Sales</p>
+              <p className="text-[13px] text-white/40">Contact Sales</p>
               <a
                 href="tel:+14158945886"
-                className="text-[14px] text-[#111110]/80 hover:text-[#111110]"
+                className="text-[14px] text-white/70 hover:text-white transition-colors"
               >
                 (415) 894-5886
               </a>
@@ -131,36 +139,20 @@ export function Footer() {
         </div>
 
         {/* Bottom bar */}
-        <div className="mt-16 pt-8 flex flex-col sm:flex-row items-start sm:items-end justify-between gap-6">
+        <div className="mt-16 pt-8 border-t border-white/10 flex flex-col sm:flex-row items-start sm:items-end justify-between gap-6">
           {/* Logo */}
           <div className="flex items-center">
-            <span className="font-serif text-3xl tracking-tight text-[#111110]">
+            <span className="font-serif text-3xl tracking-tight text-white">
               Shifti
             </span>
           </div>
 
           {/* Copyright + legal */}
           <div className="flex flex-col items-start sm:items-end gap-2 text-right">
-            <p className="text-[13px] text-[#111110]/50">
+            <p className="text-[13px] text-white/40">
               Shifti © {new Date().getFullYear()}
             </p>
-            <div className="flex flex-wrap gap-x-3 gap-y-1 text-[13px] text-[#111110]/50">
-              <a href="#" className="hover:text-[#111110] transition-colors">
-                Terms
-              </a>
-              <span>·</span>
-              <a href="#" className="hover:text-[#111110] transition-colors">
-                Privacy
-              </a>
-              <span>·</span>
-              <a href="#" className="hover:text-[#111110] transition-colors">
-                HIPAA
-              </a>
-              <span>·</span>
-              <a href="#" className="hover:text-[#111110] transition-colors">
-                Trust
-              </a>
-            </div>
+            
           </div>
         </div>
       </div>

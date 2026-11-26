@@ -92,6 +92,19 @@ export async function reviewLeave(
     type: "LEAVE_DECIDED",
     title: input.approve ? "Leave approved" : "Leave declined",
     message: input.approve ? "Your leave was approved." : "Your leave was declined.",
+    link: "/app?view=leave",
+    email: {
+      template: "leave_decided",
+      data: {
+        organizationName: ctx.organization.name,
+        actorName: ctx.membership.displayName,
+        reason: input.approve ? input.managerNote : "rejected",
+        shiftDate:
+          str(row.start_date) === str(row.end_date)
+            ? str(row.start_date)
+            : `${str(row.start_date)} – ${str(row.end_date)}`,
+      },
+    },
   });
   await audit({
     ctx,

@@ -236,8 +236,8 @@ async function createSql(): Promise<Sql> {
  * Get the shared, **server-only** SQL client. PostgreSQL when `DATABASE_URL` is set,
  * otherwise the local PGLite fallback. Memoized — safe to call per request.
  *
- * Schema comes from `migrations/*.sql`, auto-applied before the first query on
- * both backends — define tables there, never inline in server functions.
+ * Hosted schema is managed by explicit Prisma migrations; local PGLite uses
+ * `migrations/*.sql`. Keep these schemas in sync.
  */
 export function getSql(): Promise<Sql> {
   sqlPromise ??= createSql().catch((err) => {

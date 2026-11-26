@@ -1,0 +1,928 @@
+// Prisma owns the hosted Postgres schema (`prisma db push`).
+//
+// `migrations/*.sql` remain the bootstrap for the embedded PGLite fallback used
+// locally and in preview; keep the two in step when a table changes. Invariants
+// Prisma cannot express (CHECK constraints, partial and functional indexes) live
+// in `prisma/constraints.sql`, applied right after a push by `npm run db:push`.
+//
+// `DATABASE_URL` — pooled connection used by the app at runtime.
+// `DIRECT_URL`   — direct connection for pushes and DDL (Supabase pooler).
+
+datasource db {
+  provider = "postgresql"
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// ── Better Auth ─────────────────────────────────────────────────────────────
+
+model User {
+  id            String    @id
+  name          String
+  email         String    @unique
+  emailVerified Boolean   @map("emailVerified")
+  image         String?
+  createdAt     DateTime  @default(now()) @map("createdAt") @db.Timestamptz
+  updatedAt     DateTime  @default(now()) @map("updatedAt") @db.Timestamptz
+  sessions      Session[]
+  accounts      Account[]
+
+  @@map("user")
+}
+
+model Session {
+  id        String   @id
+  expiresAt DateTime @map("expiresAt") @db.Timestamptz
+  token     String   @unique
+  createdAt DateTime @default(now()) @map("createdAt") @db.Timestamptz
+  updatedAt DateTime @map("updatedAt") @db.Timestamptz
+  ipAddress String?  @map("ipAddress")
+  userAgent String?  @map("userAgent")
+  userId    String   @map("userId")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("session")
+}
+
+model Account {
+  id                    String    @id
+  accountId             String    @map("accountId")
+  providerId            String    @map("providerId")
+  userId                String    @map("userId")
+  accessToken           String?   @map("accessToken")
+  refreshToken          String?   @map("refreshToken")
+  idToken               String?   @map("idToken")
+  accessTokenExpiresAt  DateTime? @map("accessTokenExpiresAt") @db.Timestamptz
+  refreshTokenExpiresAt DateTime? @map("refreshTokenExpiresAt") @db.Timestamptz
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now()) @map("createdAt") @db.Timestamptz
+  updatedAt             DateTime  @map("updatedAt") @db.Timestamptz
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("account")
+}
+
+model Verification {
+  id         String   @id
+  identifier String
+  value      String
+  expiresAt  DateTime @map("expiresAt") @db.Timestamptz
+  createdAt  DateTime @default(now()) @map("createdAt") @db.Timestamptz
+  updatedAt  DateTime @default(now()) @map("updatedAt") @db.Timestamptz
+
+  @@index([identifier])
+  @@map("verification")
+}
+
+// ── Tenancy ─────────────────────────────────────────────────────────────────
+
+model Organization {
+  id                            String   @id
+  name                          String
+  slug                          String   @unique
+  contact_email                 String?
+  contact_phone                 String?
+  timezone                      String   @default("America/New_York")
+  week_start_day                Int      @default(1)
+  locale                        String   @default("en")
+  default_shift_length_minutes  Int      @default(720)
+  default_break_minutes         Int      @default(30)
+  max_weekly_hours              Float?
+  min_rest_hours_between_shifts Float    @default(10)
+  claim_approval_mode           String   @default("MANAGER_APPROVAL")
+  swap_approval_mode            String   @default("MANAGER_APPROVAL")
+  ai_features_enabled           Boolean  @default(true)
+  is_active                     Boolean  @default(true)
+  created_at                    DateTime @default(now()) @db.Timestamptz
+  updated_at                    DateTime @default(now()) @db.Timestamptz
+  access_code                   String?
+  headquarters_address          String?
+  org_type                      String   @default("HOSPITAL")
+  bed_count                     Int?
+  accreditation                 String?
+  regulatory_region             String?
+  confidentiality_level         String   @default("STANDARD")
+  swap_requires_head_doctor     Boolean  @default(true)
+  email_from_name               String?
+  settings                      Json     @default("{}")
+  branding                      Json     @default("{}")
+
+  locations              Location[]
+  positions              Position[]
+  memberships            Membership[]
+  credential_types       CredentialType[]
+  invitations            Invitation[]
+  rosters                Roster[]
+  shifts                 Shift[]
+  leave_requests         LeaveRequest[]
+  notifications          Notification[]
+  notification_prefs     OrganizationNotificationPreference[]
+  census_snapshots       UnitCensusSnapshot[]
+  handover_notes         HandoverNote[]
+  fatigue_snapshots      FatigueSnapshot[]
+  ai_logs                AiInteractionLog[]
+  audit_logs             AuditLog[]
+  shift_templates        ShiftTemplate[]
+  staffing_requirements  StaffingRequirement[]
+  assignment_events      ShiftAssignmentEvent[]
+  recommendations        ShiftRecommendation[]
+  agent_runs             AgentRun[]
+  agent_proposals        AgentProposal[]
+  email_messages         EmailMessage[]
+  sensitive_access_logs  SensitiveAccessLog[]
+  @@map("organizations")
+
+}
+
+model Location {
+  id                    String   @id
+  organization_id       String
+  name                  String
+  address               String?
+  unit_type             String?
+  is_active             Boolean  @default(true)
+  created_at            DateTime @default(now()) @db.Timestamptz
+  updated_at            DateTime @default(now()) @db.Timestamptz
+  code                  String?
+  description           String?
+  unit_kind             String?
+  floor                 String?
+  wing                  String?
+  bed_capacity          Int?
+  confidentiality_level String   @default("STANDARD")
+  map_x                 Float?
+  map_y                 Float?
+  map_z                 Float?
+  map_width             Float?
+  map_depth             Float?
+  map_meta              Json     @default("{}")
+
+  organization          Organization        @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  rosters               Roster[]
+  shifts                Shift[]
+  membership_locations  MembershipLocation[]
+  census_snapshots      UnitCensusSnapshot[]
+  handover_notes        HandoverNote[]
+  shift_templates       ShiftTemplate[]
+  staffing_requirements StaffingRequirement[]
+
+  @@unique([organization_id, name])
+  @@index([organization_id])
+  @@map("locations")
+
+}
+
+model Position {
+  id                     String   @id
+  organization_id        String
+  name                   String
+  color_hex              String?
+  is_active              Boolean  @default(true)
+  created_at             DateTime @default(now()) @db.Timestamptz
+  updated_at             DateTime @default(now()) @db.Timestamptz
+
+  organization           Organization                  @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  employee_positions     EmployeePosition[]
+  credential_requirements PositionCredentialRequirement[]
+  shifts                 Shift[]
+  shift_templates        ShiftTemplate[]
+  staffing_requirements  StaffingRequirement[]
+
+  @@unique([organization_id, name])
+  @@index([organization_id])
+  @@map("positions")
+
+}
+
+model Membership {
+  id                        String    @id
+  organization_id           String
+  user_id                   String
+  display_name              String
+  initials                  String?
+  role                      String    @default("EMPLOYEE")
+  status                    String    @default("ACTIVE")
+  target_weekly_hours       Float?
+  pay_rate_cents            Int?
+  pay_currency              String?   @default("USD")
+  start_date                DateTime? @db.Date
+  deactivated_at            DateTime? @db.Timestamptz
+  preferences               Json      @default("{}")
+  is_synthetic              Boolean   @default(false)
+  created_at                DateTime  @default(now()) @db.Timestamptz
+  updated_at                DateTime  @default(now()) @db.Timestamptz
+  job_title                 String?
+  practitioner_number_last4 String?
+  can_approve_swaps         Boolean   @default(false)
+  permissions               Json      @default("{}")
+  seniority                 Int       @default(0)
+  contact_email             String?
+  email_notifications       Boolean   @default(true)
+
+  organization           Organization            @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  employee_positions     EmployeePosition[]
+  membership_locations   MembershipLocation[]
+  credentials            EmployeeCredential[]
+  shifts                 Shift[]
+  availability_rules     AvailabilityRule[]
+  availability_exceptions AvailabilityException[]
+  leave_requests         LeaveRequest[]
+  claims                 ShiftClaim[]
+  swaps_initiated        ShiftSwapRequest[]      @relation("SwapInitiator")
+  swaps_targeted         ShiftSwapRequest[]      @relation("SwapTarget")
+  swaps_head_doctor      ShiftSwapRequest[]      @relation("SwapHeadDoctor")
+  notifications          Notification[]
+  handover_authored      HandoverNote[]          @relation("HandoverAuthor")
+  handover_acknowledged  HandoverNote[]          @relation("HandoverAck")
+  fatigue_snapshots      FatigueSnapshot[]
+  assignments_from       ShiftAssignmentEvent[] @relation("AssignmentFrom")
+  assignments_to         ShiftAssignmentEvent[] @relation("AssignmentTo")
+  assignments_acted      ShiftAssignmentEvent[] @relation("AssignmentActor")
+  recommendations        ShiftRecommendation[]
+  agent_runs             AgentRun[]
+  proposals_reviewed     AgentProposal[]
+  email_messages         EmailMessage[]
+  sensitive_access_logs  SensitiveAccessLog[]
+
+  @@unique([organization_id, user_id])
+  @@index([organization_id, status])
+  @@index([organization_id, role])
+  @@index([user_id])
+  @@map("memberships")
+
+}
+
+model EmployeePosition {
+  id            String   @id
+  membership_id String
+  position_id   String
+  created_at    DateTime @default(now()) @db.Timestamptz
+
+  membership Membership @relation(fields: [membership_id], references: [id], onDelete: Cascade)
+  position   Position   @relation(fields: [position_id], references: [id], onDelete: Cascade)
+
+  @@unique([membership_id, position_id])
+  @@index([position_id])
+  @@map("employee_positions")
+
+}
+
+model MembershipLocation {
+  id            String   @id
+  membership_id String
+  location_id   String
+  is_primary    Boolean  @default(false)
+  created_at    DateTime @default(now()) @db.Timestamptz
+
+  membership Membership @relation(fields: [membership_id], references: [id], onDelete: Cascade)
+  location   Location   @relation(fields: [location_id], references: [id], onDelete: Cascade)
+
+  @@unique([membership_id, location_id])
+  @@index([location_id])
+  @@map("membership_locations")
+
+}
+
+// ── Credentials ─────────────────────────────────────────────────────────────
+
+model CredentialType {
+  id                      String   @id
+  organization_id         String
+  name                    String
+  description             String?
+  warn_days_before_expiry Int      @default(30)
+  is_active               Boolean  @default(true)
+  created_at              DateTime @default(now()) @db.Timestamptz
+
+  organization           Organization                  @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  credentials            EmployeeCredential[]
+  position_requirements  PositionCredentialRequirement[]
+
+  @@unique([organization_id, name])
+  @@index([organization_id])
+  @@map("credential_types")
+
+}
+
+model EmployeeCredential {
+  id                 String    @id
+  membership_id      String
+  credential_type_id String
+  identifier_last4   String?
+  issued_at          DateTime? @db.Date
+  expires_at         DateTime? @db.Date
+  document_path      String?
+  verified_by_id     String?
+  verified_at        DateTime? @db.Timestamptz
+  created_at         DateTime  @default(now()) @db.Timestamptz
+  updated_at         DateTime  @default(now()) @db.Timestamptz
+
+  membership      Membership     @relation(fields: [membership_id], references: [id], onDelete: Cascade)
+  credential_type CredentialType @relation(fields: [credential_type_id], references: [id], onDelete: Cascade)
+
+  @@unique([membership_id, credential_type_id])
+  @@index([expires_at])
+  @@map("employee_credentials")
+
+}
+
+model PositionCredentialRequirement {
+  id                 String   @id
+  position_id        String
+  credential_type_id String
+  created_at         DateTime @default(now()) @db.Timestamptz
+
+  position        Position       @relation(fields: [position_id], references: [id], onDelete: Cascade)
+  credential_type CredentialType @relation(fields: [credential_type_id], references: [id], onDelete: Cascade)
+
+  @@unique([position_id, credential_type_id])
+  @@map("position_credential_requirements")
+
+}
+
+// ── Invitations ─────────────────────────────────────────────────────────────
+
+model Invitation {
+  id            String    @id
+  organization_id String
+  email         String
+  role          String    @default("EMPLOYEE")
+  location_id   String?
+  position_ids  Json      @default("[]")
+  token_hash    String    @unique
+  status        String    @default("PENDING")
+  invited_by_id String
+  created_at    DateTime  @default(now()) @db.Timestamptz
+  expires_at    DateTime  @db.Timestamptz
+  accepted_at   DateTime? @db.Timestamptz
+  revoked_at    DateTime? @db.Timestamptz
+  resend_count  Int       @default(0)
+  last_sent_at  DateTime  @default(now()) @db.Timestamptz
+
+  organization Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+
+  @@index([organization_id, status])
+  @@index([email])
+  @@map("invitations")
+
+}
+
+// ── Rosters and shifts ──────────────────────────────────────────────────────
+
+model Roster {
+  id                   String    @id
+  organization_id      String
+  location_id          String?
+  name                 String
+  start_date           DateTime  @db.Date
+  end_date             DateTime  @db.Date
+  status               String    @default("DRAFT")
+  availability_lock_at DateTime? @db.Timestamptz
+  created_by_id        String
+  published_by_id      String?
+  published_at         DateTime? @db.Timestamptz
+  archived_at          DateTime? @db.Timestamptz
+  created_at           DateTime  @default(now()) @db.Timestamptz
+  updated_at           DateTime  @default(now()) @db.Timestamptz
+
+  organization Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  location     Location?    @relation(fields: [location_id], references: [id], onDelete: NoAction)
+  shifts       Shift[]
+
+  @@index([organization_id, status])
+  @@index([organization_id, start_date, end_date])
+  @@map("rosters")
+
+}
+
+model Shift {
+  id                String    @id
+  organization_id   String
+  roster_id         String
+  location_id       String
+  position_id       String
+  employee_id       String?
+  date              DateTime  @db.Date
+  start_at          DateTime  @db.Timestamptz
+  end_at            DateTime  @db.Timestamptz
+  break_minutes     Int       @default(30)
+  notes             String?
+  status            String    @default("DRAFT")
+  is_open_for_claim Boolean   @default(false)
+  created_by_id     String
+  version           Int       @default(0)
+  created_at        DateTime  @default(now()) @db.Timestamptz
+  updated_at        DateTime  @default(now()) @db.Timestamptz
+  shift_window      String?
+  template_id       String?
+  open_priority     String    @default("NORMAL")
+  fill_deadline     DateTime? @db.Timestamptz
+
+  organization       Organization       @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  roster             Roster             @relation(fields: [roster_id], references: [id], onDelete: Cascade)
+  location           Location           @relation(fields: [location_id], references: [id])
+  position           Position           @relation(fields: [position_id], references: [id])
+  employee           Membership?        @relation(fields: [employee_id], references: [id])
+  template           ShiftTemplate?     @relation(fields: [template_id], references: [id], onDelete: SetNull)
+  claims             ShiftClaim[]
+  swaps_initiator    ShiftSwapRequest[] @relation("SwapInitiatorShift")
+  swaps_target       ShiftSwapRequest[] @relation("SwapTargetShift")
+  handover_notes     HandoverNote[]
+  assignment_events  ShiftAssignmentEvent[]
+  recommendations    ShiftRecommendation[]
+  agent_proposals    AgentProposal[]
+
+  @@index([organization_id, roster_id])
+  @@index([organization_id, employee_id, date])
+  @@index([organization_id, date])
+  @@index([organization_id, status, is_open_for_claim])
+  @@index([location_id, date])
+  @@map("shifts")
+
+}
+
+model ShiftTemplate {
+  id                 String   @id
+  organization_id    String
+  location_id        String?
+  position_id        String?
+  name               String
+  shift_window       String   @default("DAY")
+  start_minute       Int      @default(420)
+  end_minute         Int      @default(1140)
+  break_minutes      Int      @default(30)
+  required_headcount Int      @default(1)
+  color_hex          String?
+  is_active          Boolean  @default(true)
+  created_at         DateTime @default(now()) @db.Timestamptz
+  updated_at         DateTime @default(now()) @db.Timestamptz
+
+  organization Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  location     Location?    @relation(fields: [location_id], references: [id], onDelete: Cascade)
+  position     Position?    @relation(fields: [position_id], references: [id], onDelete: SetNull)
+  shifts       Shift[]
+
+  @@index([organization_id, is_active])
+  @@index([organization_id, location_id])
+  @@map("shift_templates")
+
+}
+
+model StaffingRequirement {
+  id              String    @id
+  organization_id String
+  location_id     String
+  position_id     String?
+  shift_window    String    @default("DAY")
+  day_of_week     Int?
+  required_count  Int       @default(1)
+  min_seniority   Int       @default(0)
+  notes           String?
+  effective_from  DateTime? @db.Date
+  effective_until DateTime? @db.Date
+  created_at      DateTime  @default(now()) @db.Timestamptz
+  updated_at      DateTime  @default(now()) @db.Timestamptz
+
+  organization Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  location     Location     @relation(fields: [location_id], references: [id], onDelete: Cascade)
+  position     Position?    @relation(fields: [position_id], references: [id], onDelete: SetNull)
+
+  @@index([organization_id, location_id, shift_window])
+  @@map("staffing_requirements")
+
+}
+
+model ShiftAssignmentEvent {
+  id                  String   @id
+  organization_id     String
+  shift_id            String
+  from_membership_id  String?
+  to_membership_id    String?
+  action              String
+  actor_membership_id String?
+  reason              String?
+  created_at          DateTime @default(now()) @db.Timestamptz
+
+  organization Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  shift        Shift        @relation(fields: [shift_id], references: [id], onDelete: Cascade)
+  from         Membership?  @relation("AssignmentFrom", fields: [from_membership_id], references: [id], onDelete: SetNull)
+  to           Membership?  @relation("AssignmentTo", fields: [to_membership_id], references: [id], onDelete: SetNull)
+  actor        Membership?  @relation("AssignmentActor", fields: [actor_membership_id], references: [id], onDelete: SetNull)
+
+  @@index([organization_id, shift_id])
+  @@map("shift_assignment_events")
+
+}
+
+model ShiftRecommendation {
+  id              String    @id
+  organization_id String
+  shift_id        String
+  membership_id   String
+  rank            Int       @default(1)
+  score           Float     @default(0)
+  reasons         Json      @default("[]")
+  warnings        Json      @default("[]")
+  source          String    @default("LOCAL_SCORE")
+  status          String    @default("PROPOSED")
+  expires_at      DateTime? @db.Timestamptz
+  created_at      DateTime  @default(now()) @db.Timestamptz
+  updated_at      DateTime  @default(now()) @db.Timestamptz
+
+  organization Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  shift        Shift        @relation(fields: [shift_id], references: [id], onDelete: Cascade)
+  membership   Membership   @relation(fields: [membership_id], references: [id], onDelete: Cascade)
+
+  @@unique([shift_id, membership_id])
+  @@index([organization_id, shift_id, status, rank])
+  @@map("shift_recommendations")
+
+}
+
+// ── Availability and leave ──────────────────────────────────────────────────
+
+model AvailabilityRule {
+  id              String    @id
+  membership_id   String
+  day_of_week     Int
+  start_minute    Int
+  end_minute      Int
+  is_available    Boolean   @default(true)
+  effective_from  DateTime? @db.Date
+  effective_until DateTime? @db.Date
+  created_at      DateTime  @default(now()) @db.Timestamptz
+  updated_at      DateTime  @default(now()) @db.Timestamptz
+
+  membership Membership @relation(fields: [membership_id], references: [id], onDelete: Cascade)
+
+  @@index([membership_id, day_of_week])
+  @@map("availability_rules")
+
+}
+
+model AvailabilityException {
+  id               String   @id
+  membership_id    String
+  date             DateTime @db.Date
+  is_available     Boolean
+  start_minute     Int?
+  end_minute       Int?
+  reason           String?
+  parsed_from_text Boolean  @default(false)
+  created_at       DateTime @default(now()) @db.Timestamptz
+  updated_at       DateTime @default(now()) @db.Timestamptz
+
+  membership Membership @relation(fields: [membership_id], references: [id], onDelete: Cascade)
+
+  @@index([membership_id, date])
+  @@map("availability_exceptions")
+
+}
+
+model LeaveRequest {
+  id                String    @id
+  organization_id   String
+  membership_id     String
+  type              String
+  custom_type_label String?
+  start_date        DateTime  @db.Date
+  end_date          DateTime  @db.Date
+  reason            String?
+  attachment_path   String?
+  status            String    @default("PENDING")
+  reviewed_by_id    String?
+  reviewed_at       DateTime? @db.Timestamptz
+  manager_note      String?
+  cancelled_at      DateTime? @db.Timestamptz
+  created_at        DateTime  @default(now()) @db.Timestamptz
+  updated_at        DateTime  @default(now()) @db.Timestamptz
+
+  organization Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  membership   Membership   @relation(fields: [membership_id], references: [id], onDelete: Cascade)
+
+  @@index([organization_id, membership_id, status])
+  @@index([organization_id, start_date, end_date])
+  @@map("leave_requests")
+
+}
+
+// ── Claims and swaps ────────────────────────────────────────────────────────
+
+model ShiftClaim {
+  id              String    @id
+  organization_id String
+  shift_id        String
+  membership_id   String
+  type            String
+  status          String    @default("PENDING")
+  note            String?
+  reviewed_by_id  String?
+  reviewed_at     DateTime? @db.Timestamptz
+  created_at      DateTime  @default(now()) @db.Timestamptz
+  updated_at      DateTime  @default(now()) @db.Timestamptz
+
+  // organization_id has no FK in the SQL schema (0002); keep it that way.
+  shift      Shift      @relation(fields: [shift_id], references: [id], onDelete: Cascade)
+  membership Membership @relation(fields: [membership_id], references: [id], onDelete: Cascade)
+
+  @@index([organization_id, shift_id, status])
+  @@index([organization_id, membership_id, status])
+  @@map("shift_claims")
+
+}
+
+model ShiftSwapRequest {
+  id                      String    @id
+  organization_id         String
+  initiator_membership_id String
+  initiator_shift_id      String
+  target_membership_id    String
+  target_shift_id         String
+  status                  String    @default("PENDING_TARGET")
+  note                    String?
+  target_responded_at     DateTime? @db.Timestamptz
+  reviewed_by_id          String?
+  reviewed_at             DateTime? @db.Timestamptz
+  created_at              DateTime  @default(now()) @db.Timestamptz
+  updated_at              DateTime  @default(now()) @db.Timestamptz
+  head_doctor_id          String?
+  head_doctor_reviewed_at DateTime? @db.Timestamptz
+  decision_reason         String?
+  approval_chain          Json      @default("[]")
+
+  initiator   Membership @relation("SwapInitiator", fields: [initiator_membership_id], references: [id], onDelete: Cascade)
+  target      Membership @relation("SwapTarget", fields: [target_membership_id], references: [id], onDelete: Cascade)
+  head_doctor Membership? @relation("SwapHeadDoctor", fields: [head_doctor_id], references: [id], onDelete: SetNull)
+  initiator_shift Shift  @relation("SwapInitiatorShift", fields: [initiator_shift_id], references: [id], onDelete: Cascade)
+  target_shift    Shift  @relation("SwapTargetShift", fields: [target_shift_id], references: [id], onDelete: Cascade)
+
+  @@index([organization_id, status])
+  @@index([organization_id, initiator_membership_id])
+  @@index([organization_id, target_membership_id])
+  @@map("shift_swap_requests")
+
+}
+
+// ── Notifications ───────────────────────────────────────────────────────────
+
+model Notification {
+  id              String    @id
+  organization_id String
+  recipient_id    String
+  type            String
+  title           String
+  message         String
+  link            String?
+  metadata        Json?
+  is_read         Boolean   @default(false)
+  read_at         DateTime? @db.Timestamptz
+  created_at      DateTime  @default(now()) @db.Timestamptz
+
+  organization Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  recipient    Membership   @relation(fields: [recipient_id], references: [id], onDelete: Cascade)
+
+  @@index([organization_id, recipient_id, is_read])
+  @@index([recipient_id, created_at])
+  @@map("notifications")
+
+}
+
+model OrganizationNotificationPreference {
+  id              String  @id
+  organization_id String
+  type            String
+  email_enabled   Boolean @default(true)
+  in_app_enabled  Boolean @default(true)
+
+  organization Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+
+  @@unique([organization_id, type])
+  @@map("organization_notification_preferences")
+
+}
+
+model EmailMessage {
+  id                      String    @id
+  organization_id         String
+  recipient_membership_id String?
+  recipient_email         String
+  template                String
+  subject                 String
+  body_text               String
+  body_html               String?
+  status                  String    @default("QUEUED")
+  provider                String    @default("resend")
+  provider_message_id     String?
+  error_code              String?
+  attempts                Int       @default(0)
+  max_attempts            Int       @default(5)
+  next_attempt_at         DateTime  @default(now()) @db.Timestamptz
+  expires_at              DateTime? @db.Timestamptz
+  metadata                Json?
+  sent_at                 DateTime? @db.Timestamptz
+  created_at              DateTime  @default(now()) @db.Timestamptz
+  updated_at              DateTime  @default(now()) @db.Timestamptz
+
+  organization Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  recipient    Membership?  @relation(fields: [recipient_membership_id], references: [id], onDelete: SetNull)
+
+  @@index([status, next_attempt_at])
+  @@index([organization_id, created_at])
+  @@map("email_messages")
+
+}
+
+// ── Clinical (aggregate only) ───────────────────────────────────────────────
+
+model UnitCensusSnapshot {
+  id              String   @id
+  organization_id String
+  location_id     String
+  date            DateTime @db.Date
+  shift_window    String
+  patient_count   Int
+  average_acuity  Float?
+  recorded_by_id  String
+  created_at      DateTime @default(now()) @db.Timestamptz
+
+  organization Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  location     Location     @relation(fields: [location_id], references: [id], onDelete: Cascade)
+
+  @@unique([organization_id, location_id, date, shift_window])
+  @@index([organization_id, location_id, date])
+  @@map("unit_census_snapshots")
+
+}
+
+model HandoverNote {
+  id                    String    @id
+  organization_id       String
+  shift_id              String
+  location_id           String
+  author_id             String
+  pending_tasks_count   Int       @default(0)
+  critical_alerts_count Int       @default(0)
+  equipment_issues_flag Boolean   @default(false)
+  free_text_note        String?
+  acknowledged_by_id    String?
+  acknowledged_at       DateTime? @db.Timestamptz
+  created_at            DateTime  @default(now()) @db.Timestamptz
+  updated_at            DateTime  @default(now()) @db.Timestamptz
+
+  organization  Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  shift         Shift        @relation(fields: [shift_id], references: [id], onDelete: Cascade)
+  location      Location     @relation(fields: [location_id], references: [id], onDelete: Cascade)
+  author        Membership   @relation("HandoverAuthor", fields: [author_id], references: [id])
+  acknowledged  Membership?  @relation("HandoverAck", fields: [acknowledged_by_id], references: [id])
+
+  @@index([organization_id, shift_id])
+  @@index([organization_id, location_id, created_at])
+  @@map("handover_notes")
+
+}
+
+model FatigueSnapshot {
+  id              String   @id
+  organization_id String
+  membership_id   String
+  date            DateTime @db.Date
+  score           Int
+  flags           Json     @default("{}")
+  created_at      DateTime @default(now()) @db.Timestamptz
+
+  organization Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  membership   Membership   @relation(fields: [membership_id], references: [id], onDelete: Cascade)
+
+  @@unique([membership_id, date])
+  @@index([organization_id, date])
+  @@map("fatigue_snapshots")
+
+}
+
+// ── AI orchestration (human-in-the-loop) ────────────────────────────────────
+
+model AiInteractionLog {
+  id                String   @id
+  organization_id   String
+  agent_name        String
+  provider          String
+  model             String
+  prompt_tokens     Int?
+  completion_tokens Int?
+  latency_ms        Int
+  success           Boolean
+  error_code        String?
+  created_at        DateTime @default(now()) @db.Timestamptz
+
+  organization Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+
+  @@index([organization_id, created_at])
+  @@index([organization_id, agent_name])
+  @@map("ai_interaction_logs")
+
+}
+
+model AgentRun {
+  id                       String    @id
+  organization_id          String
+  agent_name               String
+  trigger                  String    @default("MANUAL")
+  status                   String    @default("QUEUED")
+  input                    Json      @default("{}")
+  output                   Json?
+  provider                 String?
+  model                    String?
+  error_code               String?
+  started_at               DateTime? @db.Timestamptz
+  completed_at             DateTime? @db.Timestamptz
+  created_by_membership_id String?
+  created_at               DateTime  @default(now()) @db.Timestamptz
+
+  organization Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  created_by   Membership?  @relation(fields: [created_by_membership_id], references: [id], onDelete: SetNull)
+  proposals    AgentProposal[]
+
+  @@index([organization_id, created_at])
+  @@map("agent_runs")
+
+}
+
+model AgentProposal {
+  id                        String    @id
+  organization_id           String
+  run_id                    String?
+  kind                      String
+  shift_id                  String?
+  payload                   Json      @default("{}")
+  confidence                Float?
+  rationale                 String?
+  status                    String    @default("PROPOSED")
+  reviewed_by_membership_id String?
+  reviewed_at               DateTime? @db.Timestamptz
+  created_at                DateTime  @default(now()) @db.Timestamptz
+
+  organization Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  run          AgentRun?    @relation(fields: [run_id], references: [id], onDelete: Cascade)
+  shift        Shift?       @relation(fields: [shift_id], references: [id], onDelete: Cascade)
+  reviewed_by  Membership?  @relation(fields: [reviewed_by_membership_id], references: [id], onDelete: SetNull)
+
+  @@index([organization_id, status, created_at])
+  @@map("agent_proposals")
+
+}
+
+// ── Audit and confidentiality ───────────────────────────────────────────────
+
+model AuditLog {
+  id                  String   @id
+  organization_id     String
+  actor_user_id       String?
+  actor_membership_id String?
+  action              String
+  entity_type         String
+  entity_id           String
+  before              Json?
+  after               Json?
+  metadata            Json?
+  ip_address          String?
+  created_at          DateTime @default(now()) @db.Timestamptz
+
+  organization Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+
+  @@index([organization_id, entity_type, entity_id])
+  @@index([organization_id, created_at])
+  @@index([organization_id, action])
+  @@map("audit_logs")
+
+}
+
+model SensitiveAccessLog {
+  id              String   @id
+  organization_id String
+  membership_id   String
+  entity_type     String
+  entity_id       String
+  purpose         String
+  access_kind     String   @default("READ")
+  created_at      DateTime @default(now()) @db.Timestamptz
+
+  organization Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  membership   Membership   @relation(fields: [membership_id], references: [id], onDelete: Cascade)
+
+  @@index([organization_id, created_at])
+  @@index([organization_id, entity_type, entity_id])
+  @@map("sensitive_access_logs")
+
+}
+
+model MigrationRecord {
+  name       String   @id
+  applied_at DateTime @default(now()) @map("applied_at") @db.Timestamptz
+
+  @@map("_migrations")
+}

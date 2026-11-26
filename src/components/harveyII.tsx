@@ -20,9 +20,7 @@ export function HarveyII() {
 
   return (
     <section className="mx-auto max-w-7xl px-6 py-16 lg:px-10 lg:py-24 text-center">
-      <span className="inline-block text-[10px] tracking-wide rounded-full border border-black/20 px-3 py-1 mb-6">
-        NEW
-      </span>
+    
       <h2 className="font-serif text-3xl sm:text-5xl mb-4">
         Introducing Shifti
       </h2>
@@ -37,7 +35,7 @@ export function HarveyII() {
       <div
         className="relative w-full rounded-xl overflow-hidden flex items-center justify-center"
         style={{
-          height: "clamp(260px, 40vw, 460px)",
+          height: "clamp(360px, 55vw, 640px)",
           background:
             "radial-gradient(circle at 50% 40%, #E9E6DD 0%, #D9D5C8 45%, #C7C2B2 100%)",
         }}

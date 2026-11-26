@@ -35,6 +35,7 @@ export {
   listRosters,
   createRoster,
   generateFairRoster,
+  buildRosterDraft,
   publishRoster,
   listClaims,
   claimOpenShift,
@@ -45,6 +46,7 @@ export {
   proposeSwap,
   respondToSwap,
   reviewSwap,
+  reviewSwapAsHeadDoctor,
   cancelSwap,
 } from "./roster";
 
@@ -86,6 +88,43 @@ export {
   markNotificationsRead,
   listAuditLog,
 } from "./clinical";
+
+export {
+  listWards,
+  createWard,
+  updateWard,
+  listShiftTemplates,
+  upsertShiftTemplate,
+  listStaffingRequirements,
+  upsertStaffingRequirement,
+  getWardFloorPlan,
+} from "./units";
+
+export {
+  recommendShiftFill,
+  pairOpenShifts,
+  listShiftRecommendations,
+  acceptShiftRecommendation,
+  getOpenShiftPressure,
+  createAgentRun,
+  completeAgentRun,
+  listAgentRuns,
+  listAgentProposals,
+  reviewAgentProposal,
+  getAgentToolCatalog,
+} from "./orchestration";
+
+export {
+  getOrganisationProfile,
+  updateOrganisation,
+  getRoleCatalog,
+  listNotificationPreferences,
+  setNotificationPreference,
+  getOrganisationSnapshot,
+  listEmailOutbox,
+  getEmailDeliveryStatus,
+  flushEmailQueue,
+} from "./admin";
 
 export {
   listGaps,
