@@ -2,24 +2,30 @@
 
 Shiftii already uses PostgreSQL through `pg`. Supabase acts as the managed Postgres database; existing Next.js server actions and Better Auth can remain in place. **Do not add Supabase browser keys or switch authentication providers just to use its database.**
 
-## Current state (2026-10-28)
+## Current state (2026-11-25)
 
-Existing Supabase project: `dfovxoxevxeoibyllcph` (US West) is **ACTIVE_HEALTHY**.
+Supabase project `dfovxoxevxeoibyllcph` is **ACTIVE_HEALTHY**, with Shiftii auth and scheduling schema applied. Three application migration ledger entries are recorded. SQL reads verified one isolated demo company (`org_demo_northstar_v1`), 12 fictional staff, two rosters and 68 shifts in this database.
 
-The Next.js Shiftii schema was installed in this Supabase project's `public` schema in a tracked Supabase migration named `create_shiftii_nextjs_schema_private_api`. The app's `_migrations` table records `0001_auth.sql` and `0002_schema.sql` as applied. All 28 application/auth tables and the migration ledger have Row Level Security enabled, with all direct `anon` and `authenticated` table privileges revoked. Next.js should use a **server-only Postgres database role**, not Supabase client-side Data API access.
+**Not verified:** The deployed Next.js server's actual `DATABASE_URL` and credentials are controlled by its host, not GitHub or this Supabase connector. The repository cannot infer, retrieve, or safely commit that secret. We therefore do **not** claim the deployed app is connected yet.
 
-**Important:** The 19 old Django tables are still present and have unsafe public API grants and disabled RLS. They were deliberately not changed or deleted. Before inviting real users, back up or remove the legacy tables, or restrict them with carefully reviewed RLS and grants. This is a release blocker.
+In the integrated code:
+- `src/lib/db.ts` uses the `pg` client for any server-side PostgreSQL `DATABASE_URL` (including Supabase), with a bounded pool.
+- **Production and Vercel previews now fail closed** if `DATABASE_URL` is absent rather than silently using in-memory PGLite.
+- `GET /api/health/database` performs a read-only query through the **same `getSql()` module** used by app services. It returns an opaque success/failed status and a `demoReady` boolean.
+- The default `build` no longer performs database migrations automatically. Only explicitly run `db:migrate` after comparing the SQL migration ledger and the production `main` branch Prisma schema.
 
-**Not yet complete:** The hosted Next.js application's `DATABASE_URL` secret has not been supplied or verified from the runtime. Demo data has not been inserted into a user workspace. The signed-in company owner can opt into a demo seed through the dashboard once auth and database connectivity work. No live end-to-end test has been completed.
+**Migration warning:** Prisma is the intended hosted migration owner; PGLite retains SQL bootstrap migrations. The existing Supabase schema has not been baselined against the Prisma migration history. Do not run Prisma db push or migrate deploy on the existing database until the schema, grants, constraints and baseline are reviewed.
+
+**Security blocker:** The 19 older Django tables were kept untouched; previous database security checks found their RLS and Data API privileges need review before real customer onboarding.
 
 ## Connect server-side (after restore)
 
 1. Open [Supabase dashboard project](https://supabase.com/dashboard/project/dfovxoxevxeoibyllcph) and use **Connect** to obtain a PostgreSQL connection URI. For a serverless Next.js deployment, Supabase recommends the **transaction pooler**; for a persistent backend use the appropriate session/direct endpoint. Check current provider instructions.
 2. Set `DATABASE_URL` as a **server-side environment secret** in the hosting provider. If running locally, place it in an ignored local env file such as `.env.local`. Never put the connection string in `NEXT_PUBLIC_*`, source code, a PR, or a GitHub Actions log.
 3. Confirm `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL` and intended authentication settings are correctly configured before enabling sign-ins.
-4. Run `pnpm db:check` against the selected environment. This checks connectivity and existence of six core Shiftii tables **without modifying data**.
+4. Run `pnpm db:check` locally with the **same server-side** `DATABASE_URL` the hosting environment will use (do not share the credential). This checks connectivity and six core Shiftii tables without modifying data. After deploying the new branch, visit `https://<your-host>/api/health/database` to verify live traffic uses the Postgres client and sees the demo company. A healthy result should contain `{\"ok\":true,\"database\":\"connected\",\"schemaReady\":true,\"demoReady\":true}`.
 5. Inventory the current database schema and migration history. Review `migrations/0001_auth.sql` and `migrations/0002_schema.sql`, table name collisions, default grants, RLS, backups and data retention **before** running `pnpm db:migrate`.
-6. Do not run the project's `pnpm build` command against a live `DATABASE_URL` during initial integration: that script also calls `db:migrate`. Use `pnpm build:dev` for safe compilation.
+6. Builds are compilation-only. Do **not** run `pnpm db:migrate` or Prisma `db:push` against production until the existing schema is reconciled with Prisma's migration history.
 
 ## Security boundaries
 

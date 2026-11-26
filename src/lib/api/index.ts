@@ -70,6 +70,12 @@ export {
   cancelLeave,
   listCredentials,
   listCredentialAlerts,
+  listCredentialTypes,
+  listPositionCredentialRequirements,
+  createCredentialType,
+  setPositionCredentialRequirement,
+  upsertStaffCredential,
+  revokeStaffCredential,
 } from "./people";
 
 export {
@@ -151,6 +157,8 @@ export const API_CATALOG: { group: string; name: string; purpose: string }[] = [
   { group: "people", name: "parsePreference", purpose: "Local NLP: 'I can't do nights next week'" },
   { group: "people", name: "submitLeave / reviewLeave", purpose: "Leave workflow" },
   { group: "people", name: "listCredentialAlerts", purpose: "Local expiry warnings (last-4 only, never full license)" },
+  { group: "people", name: "createCredentialType / setPositionCredentialRequirement", purpose: "Manage certifications required for a job position" },
+  { group: "people", name: "upsertStaffCredential / revokeStaffCredential", purpose: "Verify, renew and revoke staff credentials safely" },
   { group: "clinical", name: "createHandover / acknowledgeHandover", purpose: "Structured handover; free text never sent to AI" },
   { group: "clinical", name: "recordCensus", purpose: "Aggregate patient count + acuity only" },
   { group: "intel", name: "listGaps / suggestGapFills / applyGapFill", purpose: "Local rank + optional sanitized AI explanation" },

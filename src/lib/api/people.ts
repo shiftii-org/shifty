@@ -214,3 +214,55 @@ export async function listCredentialAlerts() {
       return listCredentialAlerts(ctx);
     });
 }
+export async function listCredentialTypes() {
+  const userId = await requireAuthedUserId();
+  return withOrg(userId, async (ctx) => {
+    const { listCredentialTypes } = await import("@/lib/shiftii/services/credentials.server");
+    return listCredentialTypes(ctx);
+  });
+}
+
+export async function listPositionCredentialRequirements(input: { positionId?: string } = {}) {
+  const userId = await requireAuthedUserId();
+  return withOrg(userId, async (ctx) => {
+    const { listPositionRequirements } = await import("@/lib/shiftii/services/credentials.server");
+    return listPositionRequirements(ctx, input.positionId);
+  });
+}
+
+export async function createCredentialType(input: { name: string; description?: string | null; warnDaysBeforeExpiry?: number }) {
+  const userId = await requireAuthedUserId();
+  return withOrg(userId, async (ctx) => {
+    const { createCredentialType } = await import("@/lib/shiftii/services/credentials.server");
+    return createCredentialType(ctx, input);
+  });
+}
+
+export async function setPositionCredentialRequirement(input: {
+  positionId: string; credentialTypeId: string; required: boolean;
+}) {
+  const userId = await requireAuthedUserId();
+  return withOrg(userId, async (ctx) => {
+    const { setPositionCredentialRequirement } = await import("@/lib/shiftii/services/credentials.server");
+    return setPositionCredentialRequirement(ctx, input);
+  });
+}
+
+export async function upsertStaffCredential(input: {
+  membershipId: string; credentialTypeId: string;
+  issuedAt?: string | null; expiresAt?: string | null; identifierLast4?: string | null;
+}) {
+  const userId = await requireAuthedUserId();
+  return withOrg(userId, async (ctx) => {
+    const { upsertStaffCredential } = await import("@/lib/shiftii/services/credentials.server");
+    return upsertStaffCredential(ctx, input);
+  });
+}
+
+export async function revokeStaffCredential(input: { credentialId: string }) {
+  const userId = await requireAuthedUserId();
+  return withOrg(userId, async (ctx) => {
+    const { revokeStaffCredential } = await import("@/lib/shiftii/services/credentials.server");
+    return revokeStaffCredential(ctx, input.credentialId);
+  });
+}

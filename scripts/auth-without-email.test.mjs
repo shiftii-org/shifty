@@ -32,6 +32,8 @@ test("signup and password sessions work while email delivery is paused", {
       ...process.env,
       NODE_ENV: "production",
       DATABASE_URL: "",
+      CI: "true",
+      SHIFTII_ENABLE_EPHEMERAL_TEST_DB: "true",
       RESEND_API_KEY: "",
       AUTH_EMAIL_FROM: "",
       BETTER_AUTH_URL: "https://shiftii.example",
